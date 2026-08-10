@@ -17,6 +17,8 @@ import {
   Wind,
   Plug,
   Play,
+  Pause,
+  Square,
   Bell,
   HardDrive,
   ChevronRight,
@@ -40,7 +42,7 @@ const CameraCard: React.FC<{
   device: SmartDevice;
   onClickDetail: (device: SmartDevice) => void;
 }> = ({ device, onClickDetail }) => {
-  const [isPlaying, setIsPlaying] = useState<boolean>(true);
+  const [isPlaying, setIsPlaying] = useState<boolean>(false);
   const [showTuyaConfigModal, setShowTuyaConfigModal] = useState<boolean>(false);
   const [tuyaForm, setTuyaForm] = useState<TuyaCameraConfig>(() =>
     getTuyaConfig(device.tuyaDeviceId || device.id)
@@ -52,6 +54,7 @@ const CameraCard: React.FC<{
   const [timeStr, setTimeStr] = useState<string>('');
   const [snapshotNotice, setSnapshotNotice] = useState<boolean>(false);
   const videoRef = useRef<HTMLVideoElement>(null);
+  const peerConnectionRef = useRef<RTCPeerConnection | null>(null);
 
   useEffect(() => {
     const devId = device.tuyaDeviceId || device.id;
@@ -65,7 +68,7 @@ const CameraCard: React.FC<{
     }
   }, [device.tuyaDeviceId, device.id]);
 
-  // Automatic WebRTC/HLS Live Stream Startup directly on Home Dashboard CameraCard
+  // On-Demand WebRTC/HLS Live Stream Startup/Cleanup on CameraCard
   useEffect(() => {
     let isMounted = true;
     const devId = device.tuyaDeviceId || device.id;
@@ -74,7 +77,7 @@ const CameraCard: React.FC<{
       cfg.deviceId = devId;
     }
 
-    const autoStartStream = async () => {
+    const startStreamOnDemand = async () => {
       setIsFetchingStream(true);
       try {
         const res = await requestTuyaWebRTCStream(cfg);
@@ -86,23 +89,40 @@ const CameraCard: React.FC<{
 
           setTimeout(async () => {
             if (videoRef.current && isMounted) {
-              await startWebRTCStream(videoRef.current, res, device.name);
+              const pc = await startWebRTCStream(videoRef.current, res, device.name);
+              peerConnectionRef.current = pc;
             }
           }, 100);
         }
       } catch (err) {
-        console.warn('Auto-stream initialization error on CameraCard:', err);
+        console.warn('On-demand stream initialization error on CameraCard:', err);
       } finally {
         if (isMounted) setIsFetchingStream(false);
       }
     };
 
     if (isPlaying && !showTuyaConfigModal) {
-      autoStartStream();
+      startStreamOnDemand();
+    } else {
+      setIsFetchingStream(false);
+      if (videoRef.current) {
+        videoRef.current.pause();
+        videoRef.current.srcObject = null;
+        videoRef.current.removeAttribute('src');
+        videoRef.current.load();
+      }
+      if (peerConnectionRef.current) {
+        peerConnectionRef.current.close();
+        peerConnectionRef.current = null;
+      }
     }
 
     return () => {
       isMounted = false;
+      if (peerConnectionRef.current) {
+        peerConnectionRef.current.close();
+        peerConnectionRef.current = null;
+      }
     };
   }, [device.id, device.tuyaDeviceId, isPlaying, showTuyaConfigModal]);
 
@@ -341,7 +361,7 @@ const CameraCard: React.FC<{
               </div>
             </div>
 
-            {/* Center Play Button Overlay */}
+            {/* Center Play / Pause Button Overlay */}
             <div className="absolute inset-0 flex items-center justify-center z-10 pointer-events-none">
               <button
                 type="button"
@@ -349,10 +369,14 @@ const CameraCard: React.FC<{
                   e.stopPropagation();
                   setIsPlaying(!isPlaying);
                 }}
-                className="pointer-events-auto w-14 h-14 rounded-full border-2 border-white/90 bg-black/35 backdrop-blur-md flex items-center justify-center text-white hover:scale-105 active:scale-95 transition cursor-pointer shadow-2xl hover:border-amber-400"
-                title={isPlaying ? 'Pausa Flusso Live' : 'Riproduci Flusso Live'}
+                className={`pointer-events-auto w-14 h-14 rounded-full border-2 border-white/90 backdrop-blur-md flex items-center justify-center text-white hover:scale-105 active:scale-95 transition cursor-pointer shadow-2xl hover:border-amber-400 ${isPlaying ? 'bg-amber-500/20 border-amber-400/80' : 'bg-black/50 border-white/90'}`}
+                title={isPlaying ? 'Pausa / Interrompi Stream Live' : 'Avvia Streaming Live'}
               >
-                <Play className={`w-7 h-7 fill-white text-white ml-1 ${isPlaying ? 'opacity-100' : 'opacity-70'}`} />
+                {isPlaying ? (
+                  <Pause className="w-6 h-6 fill-amber-300 text-amber-300" />
+                ) : (
+                  <Play className="w-7 h-7 fill-white text-white ml-1 opacity-90" />
+                )}
               </button>
             </div>
 
