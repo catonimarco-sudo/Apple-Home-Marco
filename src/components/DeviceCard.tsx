@@ -1,6 +1,6 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { SmartDevice } from '../types';
-import { getTuyaConfig, saveTuyaConfig, TuyaCameraConfig, requestTuyaWebRTCStream } from '../tuyaConfig';
+import { getTuyaConfig, saveTuyaConfig, TuyaCameraConfig, requestTuyaWebRTCStream, startWebRTCStream } from '../tuyaConfig';
 import { 
   Power, 
   Zap, 
@@ -42,24 +42,28 @@ const CameraCard: React.FC<{
 }> = ({ device, onClickDetail }) => {
   const [isPlaying, setIsPlaying] = useState<boolean>(true);
   const [showTuyaConfigModal, setShowTuyaConfigModal] = useState<boolean>(false);
-  const [tuyaForm, setTuyaForm] = useState<TuyaCameraConfig>(() => getTuyaConfig());
+  const [tuyaForm, setTuyaForm] = useState<TuyaCameraConfig>(() =>
+    getTuyaConfig(device.tuyaDeviceId || device.id)
+  );
   const [activeStreamUrl, setActiveStreamUrl] = useState<string>(() => tuyaForm.streamUrl || '');
   const [isFetchingStream, setIsFetchingStream] = useState<boolean>(false);
   const [savedSuccess, setSavedSuccess] = useState<boolean>(false);
   const [statusMsg, setStatusMsg] = useState<string>('');
   const [timeStr, setTimeStr] = useState<string>('');
   const [snapshotNotice, setSnapshotNotice] = useState<boolean>(false);
+  const videoRef = useRef<HTMLVideoElement>(null);
 
   useEffect(() => {
-    const loaded = getTuyaConfig();
-    if (!loaded.deviceId && device.tuyaDeviceId) {
-      loaded.deviceId = device.tuyaDeviceId;
+    const devId = device.tuyaDeviceId || device.id;
+    const loaded = getTuyaConfig(devId);
+    if (!loaded.deviceId && devId) {
+      loaded.deviceId = devId;
     }
     setTuyaForm(loaded);
     if (loaded.streamUrl) {
       setActiveStreamUrl(loaded.streamUrl);
     }
-  }, [device.tuyaDeviceId]);
+  }, [device.tuyaDeviceId, device.id]);
 
   useEffect(() => {
     const updateTime = () => {
@@ -80,19 +84,27 @@ const CameraCard: React.FC<{
 
   const handleSaveTuyaConfig = async (e: React.FormEvent) => {
     e.preventDefault();
-    saveTuyaConfig(tuyaForm);
+    const targetDevId = tuyaForm.deviceId || device.tuyaDeviceId || device.id;
+    saveTuyaConfig(tuyaForm, targetDevId);
     setIsFetchingStream(true);
-    setStatusMsg('Connessione all\'endpoint /api/tuya-stream...');
-    
+    setStatusMsg('Connessione all\'endpoint /api/tuya-stream e RTCPeerConnection...');
+
     try {
       const res = await requestTuyaWebRTCStream(tuyaForm);
       if (res.success) {
-        if (res.streamUrl) {
-          setActiveStreamUrl(res.streamUrl);
-          saveTuyaConfig({ ...tuyaForm, streamUrl: res.streamUrl });
-        }
+        const streamUrl = res.streamUrl || 'webrtc-stream-active';
+        setActiveStreamUrl(streamUrl);
+        saveTuyaConfig({ ...tuyaForm, streamUrl }, targetDevId);
+
         setStatusMsg(res.message || 'Flusso WebRTC recuperato con successo!');
         setSavedSuccess(true);
+
+        setTimeout(async () => {
+          if (videoRef.current) {
+            await startWebRTCStream(videoRef.current, res, device.name);
+          }
+        }, 100);
+
         setTimeout(() => {
           setSavedSuccess(false);
           setShowTuyaConfigModal(false);
@@ -222,7 +234,8 @@ const CameraCard: React.FC<{
             {/* HTML5 Native Video element or Background Preview Image */}
             {activeStreamUrl && isPlaying ? (
               <video
-                src={activeStreamUrl}
+                ref={videoRef}
+                src={activeStreamUrl !== 'webrtc-stream-active' ? activeStreamUrl : undefined}
                 autoPlay
                 playsInline
                 controls

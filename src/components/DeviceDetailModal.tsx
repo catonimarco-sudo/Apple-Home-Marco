@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { SmartDevice } from '../types';
-import { getTuyaConfig, saveTuyaConfig, TuyaCameraConfig, requestTuyaWebRTCStream } from '../tuyaConfig';
+import { getTuyaConfig, saveTuyaConfig, TuyaCameraConfig, requestTuyaWebRTCStream, startWebRTCStream } from '../tuyaConfig';
 import { 
   X, 
   Power, 
@@ -109,10 +109,12 @@ export const DeviceDetailModal: React.FC<DeviceDetailModalProps> = ({
   const [showDeleteConfirm, setShowDeleteConfirm] = useState<boolean>(false);
 
   // Tuya WebRTC Credentials & Live Streaming State
-  const [tuyaWebRTCConfig, setTuyaWebRTCConfig] = useState<TuyaCameraConfig>(() => getTuyaConfig());
+  const [tuyaWebRTCConfig, setTuyaWebRTCConfig] = useState<TuyaCameraConfig>(() =>
+    getTuyaConfig(device.tuyaDeviceId || device.id)
+  );
   const [tuyaSavedSuccess, setTuyaSavedSuccess] = useState<boolean>(false);
   const [activeStreamUrl, setActiveStreamUrl] = useState<string>(() => {
-    const cfg = getTuyaConfig();
+    const cfg = getTuyaConfig(device.tuyaDeviceId || device.id);
     return cfg.streamUrl || '';
   });
   const [isFetchingStream, setIsFetchingStream] = useState<boolean>(false);
@@ -132,9 +134,10 @@ export const DeviceDetailModal: React.FC<DeviceDetailModalProps> = ({
       setEditCustomImageUrl(device.customImageUrl || '');
       setShowDeleteConfirm(false);
 
-      const cfg = getTuyaConfig();
-      if (!cfg.deviceId && device.tuyaDeviceId) {
-        cfg.deviceId = device.tuyaDeviceId;
+      const devId = device.tuyaDeviceId || device.id;
+      const cfg = getTuyaConfig(devId);
+      if (!cfg.deviceId && devId) {
+        cfg.deviceId = devId;
       }
       setTuyaWebRTCConfig(cfg);
       if (cfg.streamUrl) {
@@ -146,18 +149,25 @@ export const DeviceDetailModal: React.FC<DeviceDetailModalProps> = ({
   const handleFetchStreamFromBackend = async (configToUse?: TuyaCameraConfig) => {
     const cfg = configToUse || tuyaWebRTCConfig;
     setIsFetchingStream(true);
-    setStreamStatusMsg('Chiamata in corso a /api/tuya-stream...');
+    setStreamStatusMsg('Chiamata in corso a /api/tuya-stream e negoziazione RTCPeerConnection...');
     
     try {
       const result = await requestTuyaWebRTCStream(cfg);
       if (result.success) {
-        if (result.streamUrl) {
-          setActiveStreamUrl(result.streamUrl);
-          // Save valid URL to localStorage
-          saveTuyaConfig({ ...cfg, streamUrl: result.streamUrl });
-        }
-        setStreamStatusMsg(result.message || 'Sessione WebRTC recuperata con successo da /api/tuya-stream!');
+        const streamUrl = result.streamUrl || 'webrtc-stream-active';
+        setActiveStreamUrl(streamUrl);
+        saveTuyaConfig({ ...cfg, streamUrl }, cfg.deviceId || device.id);
+
+        setStreamStatusMsg(result.message || 'Sessione WebRTC creata con successo! Inizializzazione video...');
         setTuyaSavedSuccess(true);
+
+        // Bind WebRTC tracks / media stream directly to the video element
+        setTimeout(async () => {
+          if (videoRef.current) {
+            await startWebRTCStream(videoRef.current, result, device.name);
+          }
+        }, 100);
+
         setTimeout(() => setTuyaSavedSuccess(false), 3000);
       } else {
         setStreamStatusMsg(`Avviso: ${result.message}`);
@@ -170,7 +180,17 @@ export const DeviceDetailModal: React.FC<DeviceDetailModalProps> = ({
   };
 
   const handleSaveTuyaCredentials = async () => {
-    saveTuyaConfig(tuyaWebRTCConfig);
+    const devId = tuyaWebRTCConfig.deviceId || device.tuyaDeviceId || device.id;
+    saveTuyaConfig(tuyaWebRTCConfig, devId);
+
+    // Update tuyaDeviceId on the device object
+    if (onUpdateDevice && tuyaWebRTCConfig.deviceId) {
+      onUpdateDevice({
+        ...device,
+        tuyaDeviceId: tuyaWebRTCConfig.deviceId,
+      });
+    }
+
     await handleFetchStreamFromBackend(tuyaWebRTCConfig);
   };
 
@@ -506,7 +526,7 @@ export const DeviceDetailModal: React.FC<DeviceDetailModalProps> = ({
                       {activeStreamUrl ? (
                         <video
                           ref={videoRef}
-                          src={activeStreamUrl}
+                          src={activeStreamUrl !== 'webrtc-stream-active' ? activeStreamUrl : undefined}
                           autoPlay
                           playsInline
                           controls
