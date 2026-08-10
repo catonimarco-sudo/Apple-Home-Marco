@@ -1,6 +1,6 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { SmartDevice } from '../types';
-import { getTuyaConfig, saveTuyaConfig, TuyaCameraConfig } from '../tuyaConfig';
+import { getTuyaConfig, saveTuyaConfig, TuyaCameraConfig, requestTuyaWebRTCStream } from '../tuyaConfig';
 import { 
   X, 
   Power, 
@@ -15,7 +15,10 @@ import {
   Settings, 
   Wifi, 
   Info, 
-  Volume2, 
+  Volume2,
+  VolumeX,
+  Maximize,
+  Loader2, 
   ShieldCheck, 
   Play, 
   RotateCw, 
@@ -105,9 +108,17 @@ export const DeviceDetailModal: React.FC<DeviceDetailModalProps> = ({
   const [isSaved, setIsSaved] = useState<boolean>(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState<boolean>(false);
 
-  // Tuya WebRTC Credentials State
+  // Tuya WebRTC Credentials & Live Streaming State
   const [tuyaWebRTCConfig, setTuyaWebRTCConfig] = useState<TuyaCameraConfig>(() => getTuyaConfig());
   const [tuyaSavedSuccess, setTuyaSavedSuccess] = useState<boolean>(false);
+  const [activeStreamUrl, setActiveStreamUrl] = useState<string>(() => {
+    const cfg = getTuyaConfig();
+    return cfg.streamUrl || '';
+  });
+  const [isFetchingStream, setIsFetchingStream] = useState<boolean>(false);
+  const [streamStatusMsg, setStreamStatusMsg] = useState<string>('');
+  const [isMuted, setIsMuted] = useState<boolean>(true);
+  const videoRef = useRef<HTMLVideoElement>(null);
 
   useEffect(() => {
     if (device) {
@@ -126,13 +137,41 @@ export const DeviceDetailModal: React.FC<DeviceDetailModalProps> = ({
         cfg.deviceId = device.tuyaDeviceId;
       }
       setTuyaWebRTCConfig(cfg);
+      if (cfg.streamUrl) {
+        setActiveStreamUrl(cfg.streamUrl);
+      }
     }
   }, [device]);
 
-  const handleSaveTuyaCredentials = () => {
+  const handleFetchStreamFromBackend = async (configToUse?: TuyaCameraConfig) => {
+    const cfg = configToUse || tuyaWebRTCConfig;
+    setIsFetchingStream(true);
+    setStreamStatusMsg('Chiamata in corso a /api/tuya-stream...');
+    
+    try {
+      const result = await requestTuyaWebRTCStream(cfg);
+      if (result.success) {
+        if (result.streamUrl) {
+          setActiveStreamUrl(result.streamUrl);
+          // Save valid URL to localStorage
+          saveTuyaConfig({ ...cfg, streamUrl: result.streamUrl });
+        }
+        setStreamStatusMsg(result.message || 'Sessione WebRTC recuperata con successo da /api/tuya-stream!');
+        setTuyaSavedSuccess(true);
+        setTimeout(() => setTuyaSavedSuccess(false), 3000);
+      } else {
+        setStreamStatusMsg(`Avviso: ${result.message}`);
+      }
+    } catch (err: any) {
+      setStreamStatusMsg(`Errore durante la connessione a /api/tuya-stream: ${err?.message || String(err)}`);
+    } finally {
+      setIsFetchingStream(false);
+    }
+  };
+
+  const handleSaveTuyaCredentials = async () => {
     saveTuyaConfig(tuyaWebRTCConfig);
-    setTuyaSavedSuccess(true);
-    setTimeout(() => setTuyaSavedSuccess(false), 2000);
+    await handleFetchStreamFromBackend(tuyaWebRTCConfig);
   };
 
   const handleSaveFullEdit = () => {
@@ -442,30 +481,133 @@ export const DeviceDetailModal: React.FC<DeviceDetailModalProps> = ({
                     </div>
                   </div>
 
-                  {/* Web IPC Player */}
+                  {/* Native HTML5 / WebRTC Stream Player */}
                   <div className="space-y-2">
                     <div className="flex items-center justify-between px-1">
                       <div className="flex items-center gap-2">
-                        <Camera className="w-4 h-4 text-amber-400" />
-                        <span className="text-xs font-bold text-slate-200">Piattaforma Web Smart Life / Tuya IPC</span>
+                        <Video className="w-4 h-4 text-amber-400" />
+                        <span className="text-xs font-bold text-slate-200">Streaming Video WebRTC / HTML5 Nativo</span>
                       </div>
-                      <a
-                        href="https://ipc-eu.ismartlife.me"
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="text-[11px] text-amber-400 hover:text-amber-300 font-bold underline"
-                      >
-                        Apri ipc-eu.ismartlife.me ↗
-                      </a>
+                      <div className="flex items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={() => handleFetchStreamFromBackend()}
+                          disabled={isFetchingStream}
+                          className="text-[11px] bg-amber-400/20 hover:bg-amber-400/30 text-amber-300 px-2.5 py-1 rounded-lg border border-amber-400/30 font-bold flex items-center gap-1 cursor-pointer transition"
+                        >
+                          {isFetchingStream ? <Loader2 className="w-3 h-3 animate-spin" /> : <RotateCw className="w-3 h-3" />}
+                          <span>Richiedi Flusso /api/tuya-stream</span>
+                        </button>
+                      </div>
                     </div>
-                    <div className="relative rounded-2xl overflow-hidden bg-black border border-white/10 shadow-2xl">
-                      <iframe
-                        src="https://ipc-eu.ismartlife.me"
-                        title="Smart Life Web IPC"
-                        className="w-full h-[500px] border-0"
-                        style={{ width: '100%', height: '500px', border: 0 }}
-                        allow="fullscreen"
-                      />
+
+                    {/* HTML5 Native Video Frame */}
+                    <div className="relative rounded-2xl overflow-hidden bg-black border border-white/10 shadow-2xl min-h-[360px] flex items-center justify-center group">
+                      {activeStreamUrl ? (
+                        <video
+                          ref={videoRef}
+                          src={activeStreamUrl}
+                          autoPlay
+                          playsInline
+                          controls
+                          muted={isMuted}
+                          className="w-full h-[460px] object-cover bg-black"
+                        />
+                      ) : (
+                        <div className="relative w-full h-[460px] bg-slate-950 flex flex-col items-center justify-center p-6 text-center space-y-3 overflow-hidden">
+                          {device.customImageUrl ? (
+                            <img
+                              src={device.customImageUrl}
+                              alt={device.name}
+                              className="absolute inset-0 w-full h-full object-cover opacity-30 blur-xs"
+                            />
+                          ) : (
+                            <div className="w-16 h-16 rounded-full bg-amber-400/10 border border-amber-400/30 flex items-center justify-center text-amber-400">
+                              <Video className="w-8 h-8" />
+                            </div>
+                          )}
+
+                          <div className="relative z-10 space-y-3 max-w-md bg-black/70 backdrop-blur-md p-6 rounded-2xl border border-white/10 shadow-xl">
+                            <div className="w-12 h-12 rounded-2xl bg-amber-400/20 border border-amber-400/40 flex items-center justify-center text-amber-400 mx-auto">
+                              <Camera className="w-6 h-6" />
+                            </div>
+                            <div>
+                              <h5 className="text-sm font-bold text-white">Lettore WebRTC / HTML5 Nativo</h5>
+                              <p className="text-xs text-slate-300 mt-1 leading-relaxed">
+                                Clicca su <strong className="text-amber-300">"Salva Configurazione Tuya WebRTC"</strong> per chiamare l'endpoint backend <code className="text-amber-300 font-mono">/api/tuya-stream</code>, ottenere la sessione WebRTC e avviare il flusso video direttamente in questo riquadro.
+                              </p>
+                            </div>
+
+                            <button
+                              type="button"
+                              onClick={handleSaveTuyaCredentials}
+                              disabled={isFetchingStream}
+                              className="bg-amber-400 hover:bg-amber-300 text-slate-950 font-extrabold text-xs px-5 py-2.5 rounded-xl transition cursor-pointer flex items-center gap-2 mx-auto shadow-lg"
+                            >
+                              {isFetchingStream ? (
+                                <>
+                                  <Loader2 className="w-4 h-4 animate-spin" />
+                                  <span>Connessione a /api/tuya-stream...</span>
+                                </>
+                              ) : (
+                                <>
+                                  <Play className="w-4 h-4 fill-current" />
+                                  <span>Avvia Flusso Tuya WebRTC Live</span>
+                                </>
+                              )}
+                            </button>
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Video Status Message Overlay */}
+                      {streamStatusMsg && (
+                        <div className="absolute top-3 left-3 right-3 z-20 bg-slate-900/90 backdrop-blur-md border border-white/10 px-3.5 py-2 rounded-xl text-[11px] font-mono text-amber-300 flex items-center justify-between shadow-lg">
+                          <span className="truncate max-w-[88%]">{streamStatusMsg}</span>
+                          <button
+                            type="button"
+                            onClick={() => setStreamStatusMsg('')}
+                            className="text-slate-400 hover:text-white font-bold ml-2 cursor-pointer"
+                          >
+                            ✕
+                          </button>
+                        </div>
+                      )}
+
+                      {/* Floating Video Controls Bar */}
+                      {activeStreamUrl && (
+                        <div className="absolute bottom-3 left-3 right-3 z-20 bg-black/60 backdrop-blur-md p-2.5 rounded-xl border border-white/10 flex items-center justify-between opacity-90 group-hover:opacity-100 transition">
+                          <div className="flex items-center gap-2">
+                            <span className="w-2 h-2 rounded-full bg-rose-500 animate-pulse" />
+                            <span className="text-[10px] font-bold text-white uppercase tracking-wider">WebRTC Live Stream</span>
+                          </div>
+
+                          <div className="flex items-center gap-2">
+                            <button
+                              type="button"
+                              onClick={() => setIsMuted(!isMuted)}
+                              className="p-1.5 rounded-lg bg-white/10 hover:bg-white/20 text-white transition cursor-pointer"
+                              title={isMuted ? 'Attiva Audio' : 'Disattiva Audio'}
+                            >
+                              {isMuted ? <VolumeX className="w-4 h-4 text-rose-400" /> : <Volume2 className="w-4 h-4 text-emerald-400" />}
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                if (videoRef.current) {
+                                  if (videoRef.current.requestFullscreen) {
+                                    videoRef.current.requestFullscreen();
+                                  }
+                                }
+                              }}
+                              className="p-1.5 rounded-lg bg-white/10 hover:bg-white/20 text-white transition cursor-pointer"
+                              title="Schermo Intero"
+                            >
+                              <Maximize className="w-4 h-4" />
+                            </button>
+                          </div>
+                        </div>
+                      )}
                     </div>
                   </div>
                 </div>

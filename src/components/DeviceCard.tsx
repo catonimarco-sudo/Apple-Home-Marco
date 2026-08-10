@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { SmartDevice } from '../types';
-import { getTuyaConfig, saveTuyaConfig, TuyaCameraConfig } from '../tuyaConfig';
+import { getTuyaConfig, saveTuyaConfig, TuyaCameraConfig, requestTuyaWebRTCStream } from '../tuyaConfig';
 import { 
   Power, 
   Zap, 
@@ -23,7 +23,8 @@ import {
   Video,
   Key,
   Save,
-  Check
+  Check,
+  Loader2
 } from 'lucide-react';
 
 interface DeviceCardProps {
@@ -40,10 +41,12 @@ const CameraCard: React.FC<{
   onClickDetail: (device: SmartDevice) => void;
 }> = ({ device, onClickDetail }) => {
   const [isPlaying, setIsPlaying] = useState<boolean>(true);
-  const [showWebIframe, setShowWebIframe] = useState<boolean>(false);
   const [showTuyaConfigModal, setShowTuyaConfigModal] = useState<boolean>(false);
   const [tuyaForm, setTuyaForm] = useState<TuyaCameraConfig>(() => getTuyaConfig());
+  const [activeStreamUrl, setActiveStreamUrl] = useState<string>(() => tuyaForm.streamUrl || '');
+  const [isFetchingStream, setIsFetchingStream] = useState<boolean>(false);
   const [savedSuccess, setSavedSuccess] = useState<boolean>(false);
+  const [statusMsg, setStatusMsg] = useState<string>('');
   const [timeStr, setTimeStr] = useState<string>('');
   const [snapshotNotice, setSnapshotNotice] = useState<boolean>(false);
 
@@ -53,6 +56,9 @@ const CameraCard: React.FC<{
       loaded.deviceId = device.tuyaDeviceId;
     }
     setTuyaForm(loaded);
+    if (loaded.streamUrl) {
+      setActiveStreamUrl(loaded.streamUrl);
+    }
   }, [device.tuyaDeviceId]);
 
   useEffect(() => {
@@ -72,14 +78,33 @@ const CameraCard: React.FC<{
     return () => clearInterval(interval);
   }, []);
 
-  const handleSaveTuyaConfig = (e: React.FormEvent) => {
+  const handleSaveTuyaConfig = async (e: React.FormEvent) => {
     e.preventDefault();
     saveTuyaConfig(tuyaForm);
-    setSavedSuccess(true);
-    setTimeout(() => {
-      setSavedSuccess(false);
-      setShowTuyaConfigModal(false);
-    }, 1500);
+    setIsFetchingStream(true);
+    setStatusMsg('Connessione all\'endpoint /api/tuya-stream...');
+    
+    try {
+      const res = await requestTuyaWebRTCStream(tuyaForm);
+      if (res.success) {
+        if (res.streamUrl) {
+          setActiveStreamUrl(res.streamUrl);
+          saveTuyaConfig({ ...tuyaForm, streamUrl: res.streamUrl });
+        }
+        setStatusMsg(res.message || 'Flusso WebRTC recuperato con successo!');
+        setSavedSuccess(true);
+        setTimeout(() => {
+          setSavedSuccess(false);
+          setShowTuyaConfigModal(false);
+        }, 1500);
+      } else {
+        setStatusMsg(`Avviso: ${res.message}`);
+      }
+    } catch (err: any) {
+      setStatusMsg(`Errore stream: ${err?.message || String(err)}`);
+    } finally {
+      setIsFetchingStream(false);
+    }
   };
 
   const handleSnapshot = (e: React.MouseEvent) => {
@@ -159,55 +184,58 @@ const CameraCard: React.FC<{
                 </div>
               </div>
 
+              {statusMsg && (
+                <div className="p-2 bg-amber-400/10 border border-amber-400/20 rounded-lg text-[10px] text-amber-300 font-mono">
+                  {statusMsg}
+                </div>
+              )}
+
               <div className="pt-1 flex items-center justify-between">
                 <button
                   type="submit"
+                  disabled={isFetchingStream}
                   className="bg-amber-400 hover:bg-amber-300 text-slate-950 font-bold px-4 py-1.5 rounded-lg text-xs flex items-center gap-1.5 shadow-md cursor-pointer"
                 >
-                  {savedSuccess ? (
+                  {isFetchingStream ? (
+                    <>
+                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                      <span>Verifica /api/tuya-stream...</span>
+                    </>
+                  ) : savedSuccess ? (
                     <>
                       <Check className="w-3.5 h-3.5" />
-                      <span>Salvato!</span>
+                      <span>Flusso WebRTC Salvato!</span>
                     </>
                   ) : (
                     <>
                       <Save className="w-3.5 h-3.5" />
-                      <span>Salva Credenziali WebRTC</span>
+                      <span>Salva Configurazione Tuya WebRTC</span>
                     </>
                   )}
                 </button>
-                <span className="text-[10px] text-slate-400">Salvato in locale sicuro</span>
+                <span className="text-[10px] text-slate-400">Piattaforma Tuya Cloud</span>
               </div>
             </form>
           </div>
-        ) : showWebIframe ? (
-          <div className="relative w-full h-full">
-            <button
-              type="button"
-              onClick={(e) => {
-                e.stopPropagation();
-                setShowWebIframe(false);
-              }}
-              className="absolute top-2 right-2 z-20 bg-black/80 hover:bg-black text-white text-[10px] font-extrabold px-2.5 py-1 rounded-full border border-white/20 shadow-lg cursor-pointer"
-            >
-              ✕ Chiudi Web IPC
-            </button>
-            <iframe
-              src="https://ipc-eu.ismartlife.me"
-              title={`Web IPC - ${device.name}`}
-              className="w-full h-full border-0"
-              style={{ width: '100%', height: '100%', border: 0 }}
-              allow="fullscreen"
-            />
-          </div>
         ) : (
           <>
-            {/* Background Stream Image / Canvas Simulation */}
-            <img
-              src={bgImage}
-              alt={device.name}
-              className={`w-full h-full object-cover transition-all duration-700 ${isPlaying ? 'brightness-90 contrast-105' : 'brightness-50 grayscale'}`}
-            />
+            {/* HTML5 Native Video element or Background Preview Image */}
+            {activeStreamUrl && isPlaying ? (
+              <video
+                src={activeStreamUrl}
+                autoPlay
+                playsInline
+                controls
+                muted
+                className="w-full h-full object-cover bg-black"
+              />
+            ) : (
+              <img
+                src={bgImage}
+                alt={device.name}
+                className={`w-full h-full object-cover transition-all duration-700 ${isPlaying ? 'brightness-90 contrast-105' : 'brightness-50 grayscale'}`}
+              />
+            )}
 
             {/* Dark Overlay Gradients for Readability */}
             <div className="absolute inset-0 bg-gradient-to-b from-black/80 via-transparent to-black/60 pointer-events-none" />
@@ -230,22 +258,11 @@ const CameraCard: React.FC<{
                     e.stopPropagation();
                     setShowTuyaConfigModal(true);
                   }}
-                  className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/40 transition cursor-pointer flex items-center gap-1"
+                  className="text-[10px] font-bold px-2.5 py-1 rounded-full bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/40 transition cursor-pointer flex items-center gap-1 shadow-md"
                   title="Configura Credenziali Tuya WebRTC"
                 >
                   <Key className="w-3 h-3" />
                   <span>Tuya WebRTC</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    setShowWebIframe(true);
-                  }}
-                  className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-black/40 hover:bg-black/60 text-slate-200 border border-white/10 transition cursor-pointer"
-                  title="Apri Piattaforma Web IPC in Iframe"
-                >
-                  🌐 Web IPC
                 </button>
                 <button
                   type="button"
@@ -262,14 +279,14 @@ const CameraCard: React.FC<{
             </div>
 
             {/* Center Play Button Overlay */}
-            <div className="absolute inset-0 flex items-center justify-center z-10">
+            <div className="absolute inset-0 flex items-center justify-center z-10 pointer-events-none">
               <button
                 type="button"
                 onClick={(e) => {
                   e.stopPropagation();
                   setIsPlaying(!isPlaying);
                 }}
-                className="w-14 h-14 rounded-full border-2 border-white/90 bg-black/35 backdrop-blur-md flex items-center justify-center text-white hover:scale-105 active:scale-95 transition cursor-pointer shadow-2xl hover:border-amber-400"
+                className="pointer-events-auto w-14 h-14 rounded-full border-2 border-white/90 bg-black/35 backdrop-blur-md flex items-center justify-center text-white hover:scale-105 active:scale-95 transition cursor-pointer shadow-2xl hover:border-amber-400"
                 title={isPlaying ? 'Pausa Flusso Live' : 'Riproduci Flusso Live'}
               >
                 <Play className={`w-7 h-7 fill-white text-white ml-1 ${isPlaying ? 'opacity-100' : 'opacity-70'}`} />
@@ -280,7 +297,7 @@ const CameraCard: React.FC<{
             {isPlaying && (
               <div className="absolute bottom-3 left-3.5 z-10 flex items-center gap-1.5 bg-rose-600/90 text-white px-2.5 py-0.5 rounded-full text-[10px] font-extrabold tracking-wider border border-rose-400/40 backdrop-blur-md animate-pulse">
                 <span className="w-1.5 h-1.5 rounded-full bg-white" />
-                LIVE
+                LIVE WEBRTC
               </div>
             )}
           </>

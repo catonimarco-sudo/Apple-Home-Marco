@@ -58,7 +58,13 @@ export function saveTuyaConfig(config: Partial<TuyaCameraConfig>): TuyaCameraCon
 /**
  * Request real Tuya WebRTC / RTSP live stream allocation using Tuya OpenAPI
  */
-export async function requestTuyaWebRTCStream(config: TuyaCameraConfig): Promise<{ success: boolean; streamUrl?: string; message: string }> {
+export async function requestTuyaWebRTCStream(config: TuyaCameraConfig): Promise<{ 
+  success: boolean; 
+  streamUrl?: string; 
+  streamData?: any;
+  tokenData?: any;
+  message: string 
+}> {
   if (!config.clientId || !config.clientSecret || !config.deviceId) {
     return {
       success: false,
@@ -67,7 +73,6 @@ export async function requestTuyaWebRTCStream(config: TuyaCameraConfig): Promise
   }
 
   try {
-    // Attempt backend /api/tuya-stream or /api/tuya-webrtc endpoint
     const res = await fetch('/api/tuya-stream', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -75,36 +80,40 @@ export async function requestTuyaWebRTCStream(config: TuyaCameraConfig): Promise
         clientAccessId: config.clientId,
         clientSecret: config.clientSecret,
         deviceId: config.deviceId,
-        region: config.region,
+        region: config.region || 'eu',
         streamType: 'webrtc',
       }),
     });
 
     if (res.ok) {
       const data = await res.json();
-      if (data.success && (data.streamUrl || data.tokenData)) {
+      if (data.success) {
+        const url = data.streamUrl || data.streamData?.url || data.tuyaRawResponse?.result?.url || config.streamUrl;
         return {
           success: true,
-          streamUrl: data.streamUrl,
+          streamUrl: url,
+          streamData: data.streamData || data.tuyaRawResponse,
+          tokenData: data.tokenData,
           message: data.message || 'Flusso WebRTC ottenuto con successo da Tuya Cloud!',
         };
+      } else {
+        return {
+          success: false,
+          message: data.message || 'Errore nella richiesta del flusso Tuya WebRTC.',
+        };
       }
+    } else {
+      const errData = await res.json().catch(() => ({}));
+      return {
+        success: false,
+        message: errData.message || `Errore HTTP ${res.status} durante l'allocazione dello streaming Tuya.`,
+      };
     }
-  } catch (err) {
+  } catch (err: any) {
     console.warn('Backend WebRTC allocation endpoint unavailable:', err);
-  }
-
-  // If direct stream URL is specified manually in config, use it
-  if (config.streamUrl && config.streamUrl.trim() !== '') {
     return {
-      success: true,
-      streamUrl: config.streamUrl,
-      message: 'Flusso video personalizzato attivo.',
+      success: false,
+      message: `Errore di connessione a /api/tuya-stream: ${err?.message || String(err)}`,
     };
   }
-
-  return {
-    success: true,
-    message: `Credenziali Tuya WebRTC configurate per Device ID ${config.deviceId}.`,
-  };
 }
