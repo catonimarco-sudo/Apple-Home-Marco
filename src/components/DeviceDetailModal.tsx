@@ -527,7 +527,7 @@ export const DeviceDetailModal: React.FC<DeviceDetailModalProps> = ({
                         <video
                           id="tuya-video"
                           ref={videoRef}
-                          src={activeStreamUrl !== 'webrtc-stream-active' ? activeStreamUrl : ''}
+                          src={activeStreamUrl && activeStreamUrl !== 'webrtc-stream-active' ? activeStreamUrl : undefined}
                           autoPlay={true}
                           playsInline={true}
                           controls={true}
