@@ -525,6 +525,7 @@ export const DeviceDetailModal: React.FC<DeviceDetailModalProps> = ({
                     <div className="relative rounded-2xl overflow-hidden bg-black border border-white/10 shadow-2xl min-h-[360px] flex items-center justify-center group">
                       {activeStreamUrl ? (
                         <video
+                          id="tuya-video"
                           ref={videoRef}
                           src={activeStreamUrl !== 'webrtc-stream-active' ? activeStreamUrl : undefined}
                           autoPlay

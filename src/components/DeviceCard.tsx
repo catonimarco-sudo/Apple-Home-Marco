@@ -234,6 +234,7 @@ const CameraCard: React.FC<{
             {/* HTML5 Native Video element or Background Preview Image */}
             {activeStreamUrl && isPlaying ? (
               <video
+                id="tuya-video"
                 ref={videoRef}
                 src={activeStreamUrl !== 'webrtc-stream-active' ? activeStreamUrl : undefined}
                 autoPlay

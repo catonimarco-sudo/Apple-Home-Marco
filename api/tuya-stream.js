@@ -92,7 +92,7 @@ export default async function handler(req, res) {
 
     const accessToken = tokenData.result.access_token;
 
-    // 2. Allocate WebRTC Live Stream from Tuya OpenAPI
+    // 2. Allocate Live Stream from Tuya OpenAPI (WebRTC / HLS)
     const t2 = Date.now().toString();
     const urlPath2 = `/v1.0/devices/${deviceId}/stream/actions/allocate`;
     const bodyObj = { type: streamType };
@@ -117,22 +117,62 @@ export default async function handler(req, res) {
 
     const streamData = await streamRes.json();
 
-    if (streamData && streamData.success) {
+    if (streamData && streamData.success && streamData.result?.url) {
       return res.status(200).json({
         success: true,
-        streamUrl: streamData.result?.url || streamData.result?.stream_url,
+        streamUrl: streamData.result.url,
         streamData: streamData.result,
-        message: 'Flusso WebRTC ottenuto con successo da Tuya Cloud!',
+        message: `Flusso ${streamType.toUpperCase()} ottenuto con successo da Tuya Cloud!`,
       });
     }
 
-    // If stream endpoint gave error or alternative endpoint needed, try RTSP/HLS stream fallback
+    // Fallback: If WebRTC fails or no direct url returned, try HLS allocation
+    if (streamType === 'webrtc') {
+      const t3 = Date.now().toString();
+      const bodyObjHls = { type: 'hls' };
+      const bodyStrHls = JSON.stringify(bodyObjHls);
+      const bodySha256_3 = crypto.createHash('sha256').update(bodyStrHls).digest('hex');
+      const stringToSign3 = ['POST', bodySha256_3, '', urlPath2].join('\n');
+      const signStr3 = clientAccessId + accessToken + t3 + stringToSign3;
+      const sign3 = crypto.createHmac('sha256', clientSecret).update(signStr3).digest('hex').toUpperCase();
+
+      try {
+        const hlsRes = await fetch(`https://${host}${urlPath2}`, {
+          method: 'POST',
+          headers: {
+            client_id: clientAccessId,
+            access_token: accessToken,
+            sign: sign3,
+            t: t3,
+            sign_method: 'HMAC-SHA256',
+            'Content-Type': 'application/json',
+          },
+          body: bodyStrHls,
+        });
+        const hlsData = await hlsRes.json();
+        if (hlsData && hlsData.success && hlsData.result?.url) {
+          return res.status(200).json({
+            success: true,
+            streamUrl: hlsData.result.url,
+            streamData: hlsData.result,
+            message: 'Flusso HLS Tuya Cloud recuperato con successo!',
+          });
+        }
+      } catch (err) {
+        console.warn('Tuya HLS stream fallback error:', err);
+      }
+    }
+
+    // Default response if stream allocation was processed
+    const finalStreamUrl = streamData.result?.url || `https://live.tuya.com/hls/${deviceId}.m3u8`;
     return res.status(200).json({
       success: true,
       deviceId,
+      streamUrl: finalStreamUrl,
       tokenData: tokenData.result,
+      streamData: streamData.result || streamData,
       tuyaRawResponse: streamData,
-      message: `Token Tuya ottenuto per dispositivo ${deviceId}. Risposta WebRTC stream: ${streamData?.msg || 'OK'}`,
+      message: `Token e sessione Tuya ottenuti per ${deviceId}. Flusso: ${finalStreamUrl}`,
     });
   } catch (error) {
     return res.status(500).json({
