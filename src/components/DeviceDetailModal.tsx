@@ -1,0 +1,825 @@
+import React, { useState, useEffect } from 'react';
+import { SmartDevice } from '../types';
+import { getTuyaConfig, saveTuyaConfig, TuyaCameraConfig } from '../tuyaConfig';
+import { 
+  X, 
+  Power, 
+  Zap, 
+  Thermometer, 
+  Camera, 
+  Lock, 
+  Unlock, 
+  Sliders, 
+  Clock, 
+  Sparkles, 
+  Settings, 
+  Wifi, 
+  Info, 
+  Volume2, 
+  ShieldCheck, 
+  Play, 
+  RotateCw, 
+  Compass,
+  CheckCircle2,
+  Trash2,
+  Edit3,
+  Save,
+  Check,
+  Lightbulb,
+  Fan,
+  Wind,
+  Plug,
+  Key,
+  Video
+} from 'lucide-react';
+
+// Helper function to compress and resize custom uploaded icons to 300x300 max
+const compressImageFile = (file: File, maxWidth = 300, maxHeight = 300): Promise<string> => {
+  return new Promise((resolve) => {
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      const img = new Image();
+      img.onload = () => {
+        const canvas = document.createElement('canvas');
+        let width = img.width;
+        let height = img.height;
+
+        if (width > height) {
+          if (width > maxWidth) {
+            height = Math.round((height * maxWidth) / width);
+            width = maxWidth;
+          }
+        } else {
+          if (height > maxHeight) {
+            width = Math.round((width * maxHeight) / height);
+            height = maxHeight;
+          }
+        }
+
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext('2d');
+        if (ctx) {
+          ctx.drawImage(img, 0, 0, width, height);
+          resolve(canvas.toDataURL('image/jpeg', 0.85));
+        } else {
+          resolve((event.target?.result as string) || '');
+        }
+      };
+      img.onerror = () => resolve((event.target?.result as string) || '');
+      img.src = event.target?.result as string;
+    };
+    reader.onerror = () => resolve('');
+    reader.readAsDataURL(file);
+  });
+};
+
+interface DeviceDetailModalProps {
+  device: SmartDevice | null;
+  onClose: () => void;
+  onUpdateDevice: (updated: SmartDevice) => void;
+  onDeleteDevice: (deviceId: string) => void;
+}
+
+export const DeviceDetailModal: React.FC<DeviceDetailModalProps> = ({
+  device,
+  onClose,
+  onUpdateDevice,
+  onDeleteDevice,
+}) => {
+  if (!device) return null;
+
+  const [activeTab, setActiveTab] = useState<'control' | 'edit' | 'schedule' | 'info'>('control');
+  const [timerMinutes, setTimerMinutes] = useState<number>(30);
+  const [timerRunning, setTimerRunning] = useState<boolean>(false);
+  
+  // Editable Fields
+  const [editName, setEditName] = useState<string>(device.name);
+  const [editRoom, setEditRoom] = useState<string>(device.room);
+  const [editCategory, setEditCategory] = useState<SmartDevice['category']>(device.category);
+  const [editVendor, setEditVendor] = useState<string>(device.vendor);
+  const [editTuyaId, setEditTuyaId] = useState<string>(device.tuyaDeviceId || '');
+  const [editIp, setEditIp] = useState<string>(device.ipAddress || '');
+  const [editCustomIcon, setEditCustomIcon] = useState<string>(device.customIcon || '');
+  const [editCustomImageUrl, setEditCustomImageUrl] = useState<string>(device.customImageUrl || '');
+  const [isSaved, setIsSaved] = useState<boolean>(false);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState<boolean>(false);
+
+  // Tuya WebRTC Credentials State
+  const [tuyaWebRTCConfig, setTuyaWebRTCConfig] = useState<TuyaCameraConfig>(() => getTuyaConfig());
+  const [tuyaSavedSuccess, setTuyaSavedSuccess] = useState<boolean>(false);
+
+  useEffect(() => {
+    if (device) {
+      setEditName(device.name);
+      setEditRoom(device.room);
+      setEditCategory(device.category);
+      setEditVendor(device.vendor);
+      setEditTuyaId(device.tuyaDeviceId || '');
+      setEditIp(device.ipAddress || '');
+      setEditCustomIcon(device.customIcon || '');
+      setEditCustomImageUrl(device.customImageUrl || '');
+      setShowDeleteConfirm(false);
+
+      const cfg = getTuyaConfig();
+      if (!cfg.deviceId && device.tuyaDeviceId) {
+        cfg.deviceId = device.tuyaDeviceId;
+      }
+      setTuyaWebRTCConfig(cfg);
+    }
+  }, [device]);
+
+  const handleSaveTuyaCredentials = () => {
+    saveTuyaConfig(tuyaWebRTCConfig);
+    setTuyaSavedSuccess(true);
+    setTimeout(() => setTuyaSavedSuccess(false), 2000);
+  };
+
+  const handleSaveFullEdit = () => {
+    const updated: SmartDevice = {
+      ...device,
+      name: editName,
+      room: editRoom,
+      category: editCategory,
+      vendor: editVendor,
+      tuyaDeviceId: editTuyaId,
+      ipAddress: editIp,
+      customIcon: editCustomIcon || '',
+      customImageUrl: editCustomImageUrl || '',
+    };
+    onUpdateDevice(updated);
+    setIsSaved(true);
+    setTimeout(() => setIsSaved(false), 2000);
+  };
+
+  // Quick State Handler
+  const handleStateChange = (updatedPartial: Partial<SmartDevice['state']>) => {
+    onUpdateDevice({
+      ...device,
+      state: {
+        ...device.state,
+        ...updatedPartial,
+      },
+    });
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 bg-[#0A0A0B]/80 backdrop-blur-sm flex items-center justify-center p-4">
+      <div className="bg-[#121214] border border-white/5 rounded-3xl w-full max-w-2xl max-h-[90vh] flex flex-col shadow-2xl overflow-hidden animate-in fade-in zoom-in duration-200">
+        {/* Header */}
+        <div className="p-5 border-b border-white/5 flex items-center justify-between bg-[#121214]">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-xl bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 flex items-center justify-center">
+              {device.category === 'plug' && <Zap className="w-5 h-5" />}
+              {device.category === 'light' && <Lightbulb className="w-5 h-5 fill-current" />}
+              {device.category === 'thermostat' && <Thermometer className="w-5 h-5" />}
+              {device.category === 'camera' && <Camera className="w-5 h-5" />}
+              {device.category === 'lock' && <Lock className="w-5 h-5" />}
+              {device.category === 'vacuum' && <Volume2 className="w-5 h-5" />}
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <h3 className="text-lg font-bold text-white">{device.name}</h3>
+                <button
+                  type="button"
+                  onClick={() => setActiveTab('edit')}
+                  className="p-1 text-amber-400/80 hover:text-amber-300 hover:bg-amber-400/10 rounded-lg transition cursor-pointer flex items-center gap-1 text-xs font-semibold"
+                  title="Modifica Nome Dispositivo"
+                >
+                  <Edit3 className="w-3.5 h-3.5" />
+                  <span className="hidden sm:inline text-[11px]">Modifica Nome</span>
+                </button>
+                {device.transferredFromSmartLife && (
+                  <span className="bg-emerald-500/20 text-emerald-400 text-[10px] font-bold px-2 py-0.5 rounded-full border border-emerald-500/30">
+                    Smart Life Sync
+                  </span>
+                )}
+              </div>
+              <p className="text-xs text-slate-400">
+                Stanza: {device.room} • Vendor: {device.vendor}
+              </p>
+            </div>
+          </div>
+
+          <button
+            onClick={onClose}
+            className="p-2 text-slate-400 hover:text-white bg-white/5 hover:bg-white/10 rounded-full transition cursor-pointer"
+          >
+            <X className="w-5 h-5" />
+          </button>
+        </div>
+
+        {/* Modal Tabs */}
+        <div className="flex border-b border-white/5 bg-[#0A0A0B] px-5 gap-4">
+          <button
+            onClick={() => setActiveTab('control')}
+            className={`py-3 text-xs font-bold border-b-2 cursor-pointer transition ${
+              activeTab === 'control'
+                ? 'border-emerald-400 text-emerald-400'
+                : 'border-transparent text-slate-400 hover:text-slate-200'
+            }`}
+          >
+            Controlli
+          </button>
+          <button
+            onClick={() => setActiveTab('edit')}
+            className={`py-3 text-xs font-bold border-b-2 cursor-pointer transition flex items-center gap-1.5 ${
+              activeTab === 'edit'
+                ? 'border-emerald-400 text-emerald-400'
+                : 'border-transparent text-slate-400 hover:text-slate-200'
+            }`}
+          >
+            <Edit3 className="w-3.5 h-3.5" />
+            <span>Modifica Parametri</span>
+          </button>
+          <button
+            onClick={() => setActiveTab('schedule')}
+            className={`py-3 text-xs font-bold border-b-2 cursor-pointer transition ${
+              activeTab === 'schedule'
+                ? 'border-emerald-400 text-emerald-400'
+                : 'border-transparent text-slate-400 hover:text-slate-200'
+            }`}
+          >
+            Timer & Programmazione
+          </button>
+          <button
+            onClick={() => setActiveTab('info')}
+            className={`py-3 text-xs font-bold border-b-2 cursor-pointer transition ${
+              activeTab === 'info'
+                ? 'border-emerald-400 text-emerald-400'
+                : 'border-transparent text-slate-400 hover:text-slate-200'
+            }`}
+          >
+            Info Hardware
+          </button>
+        </div>
+
+        {/* Body Content */}
+        <div className="p-6 overflow-y-auto space-y-6 flex-1 text-slate-200">
+          {activeTab === 'control' && (
+            <div className="space-y-6">
+              {/* Plug Specifics */}
+              {device.category === 'plug' && device.state.plug && (
+                <div className="space-y-4">
+                  <div className="grid grid-cols-3 gap-3">
+                    <div className="bg-[#0A0A0B] p-3.5 rounded-2xl border border-white/5 text-center">
+                      <span className="text-xs text-slate-400 block">Potenza Attuale</span>
+                      <span className="text-xl font-bold font-mono text-amber-400">
+                        {device.state.plug.power ? `${device.state.plug.watts} W` : '0 W'}
+                      </span>
+                    </div>
+                    <div className="bg-[#0A0A0B] p-3.5 rounded-2xl border border-white/5 text-center">
+                      <span className="text-xs text-slate-400 block">Tensione (V)</span>
+                      <span className="text-xl font-bold font-mono text-emerald-400">
+                        {device.state.plug.voltage} V
+                      </span>
+                    </div>
+                    <div className="bg-[#0A0A0B] p-3.5 rounded-2xl border border-white/5 text-center">
+                      <span className="text-xs text-slate-400 block">Consumo Totale</span>
+                      <span className="text-xl font-bold font-mono text-emerald-400">
+                        {device.state.plug.totalKwh} kWh
+                      </span>
+                    </div>
+                  </div>
+
+                  <div className="bg-[#0A0A0B] p-4 rounded-2xl border border-white/5 flex items-center justify-between">
+                    <div>
+                      <h4 className="text-sm font-bold text-white">Alimentazione Presa</h4>
+                      <p className="text-xs text-slate-400">Interruttore rele smart Tuya 16A</p>
+                    </div>
+                    <button
+                      onClick={() =>
+                        handleStateChange({
+                          plug: { ...device.state.plug!, power: !device.state.plug?.power },
+                        })
+                      }
+                      className={`px-4 py-2 rounded-xl text-xs font-bold transition flex items-center gap-2 cursor-pointer ${
+                        device.state.plug.power
+                          ? 'bg-amber-500/20 text-amber-400 border border-amber-500/30'
+                          : 'bg-white/5 text-slate-400 border border-white/5 hover:bg-white/10'
+                      }`}
+                    >
+                      <Power className="w-4 h-4" />
+                      <span>{device.state.plug.power ? 'ON' : 'OFF'}</span>
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {/* Light Specifics */}
+              {device.category === 'light' && device.state.light && (
+                <div className="space-y-5">
+                  <div className="space-y-2">
+                    <label className="text-xs font-bold text-slate-300 flex justify-between">
+                      <span>Luminosità (%)</span>
+                      <span className="text-emerald-400">{device.state.light.brightness}%</span>
+                    </label>
+                    <input
+                      type="range"
+                      min="1"
+                      max="100"
+                      value={device.state.light.brightness}
+                      onChange={(e) =>
+                        handleStateChange({
+                          light: {
+                            ...device.state.light!,
+                            brightness: parseInt(e.target.value, 10),
+                            power: true,
+                          },
+                        })
+                      }
+                      className="w-full h-2 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-emerald-400"
+                    />
+                  </div>
+
+                  {/* Preset Colors */}
+                  <div className="space-y-2">
+                    <label className="text-xs font-bold text-slate-300">Tonalità e Colori RGB</label>
+                    <div className="flex items-center gap-3">
+                      {['#10b981', '#3b82f6', '#f59e0b', '#ec4899', '#8b5cf6', '#ffffff'].map((hex) => (
+                        <button
+                          key={hex}
+                          onClick={() =>
+                            handleStateChange({
+                              light: { ...device.state.light!, color: hex, mode: 'color', power: true },
+                            })
+                          }
+                          className="w-8 h-8 rounded-full border-2 border-white/10 hover:scale-110 transition cursor-pointer shadow-md"
+                          style={{ backgroundColor: hex }}
+                        />
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Camera Live Stream & Tuya WebRTC Config */}
+              {(device.category === 'camera' || device.customIcon === 'camera' || device.name.toLowerCase().includes('telecamera')) && (
+                <div className="space-y-4">
+                  {/* Tuya WebRTC Credentials Card */}
+                  <div className="bg-[#0A0A0B] p-4 rounded-2xl border border-white/10 space-y-3">
+                    <div className="flex items-center justify-between pb-2 border-b border-white/5">
+                      <div className="flex items-center gap-2 text-amber-400">
+                        <Key className="w-4 h-4" />
+                        <h4 className="text-xs font-bold text-white uppercase tracking-wider">Credenziali Tuya WebRTC Streaming Live</h4>
+                      </div>
+                      <span className="text-[10px] text-slate-400 bg-white/5 px-2 py-0.5 rounded-full border border-white/5 font-mono">
+                        {tuyaWebRTCConfig.clientId ? 'Credenziali Inserite' : 'Incolla Credenziali'}
+                      </span>
+                    </div>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2 text-xs">
+                      <div>
+                        <label className="text-[11px] text-slate-300 font-bold block mb-1">Tuya Client ID</label>
+                        <input
+                          type="text"
+                          value={tuyaWebRTCConfig.clientId}
+                          onChange={(e) => setTuyaWebRTCConfig({ ...tuyaWebRTCConfig, clientId: e.target.value })}
+                          placeholder="Client ID Tuya IoT"
+                          className="w-full bg-[#121214] border border-white/10 px-2.5 py-1.5 rounded-xl text-white font-mono focus:border-amber-400 focus:outline-none"
+                        />
+                      </div>
+
+                      <div>
+                        <label className="text-[11px] text-slate-300 font-bold block mb-1">Tuya Client Secret</label>
+                        <input
+                          type="password"
+                          value={tuyaWebRTCConfig.clientSecret}
+                          onChange={(e) => setTuyaWebRTCConfig({ ...tuyaWebRTCConfig, clientSecret: e.target.value })}
+                          placeholder="Client Secret Tuya IoT"
+                          className="w-full bg-[#121214] border border-white/10 px-2.5 py-1.5 rounded-xl text-white font-mono focus:border-amber-400 focus:outline-none"
+                        />
+                      </div>
+
+                      <div>
+                        <label className="text-[11px] text-slate-300 font-bold block mb-1">Camera Device ID</label>
+                        <input
+                          type="text"
+                          value={tuyaWebRTCConfig.deviceId || device.tuyaDeviceId || ''}
+                          onChange={(e) => setTuyaWebRTCConfig({ ...tuyaWebRTCConfig, deviceId: e.target.value })}
+                          placeholder="Device ID (es. eb9...)"
+                          className="w-full bg-[#121214] border border-white/10 px-2.5 py-1.5 rounded-xl text-white font-mono focus:border-amber-400 focus:outline-none"
+                        />
+                      </div>
+
+                      <div>
+                        <label className="text-[11px] text-slate-300 font-bold block mb-1">Tuya Region</label>
+                        <select
+                          value={tuyaWebRTCConfig.region || 'eu'}
+                          onChange={(e) => setTuyaWebRTCConfig({ ...tuyaWebRTCConfig, region: e.target.value as any })}
+                          className="w-full bg-[#121214] border border-white/10 px-2.5 py-1.5 rounded-xl text-white focus:border-amber-400 focus:outline-none"
+                        >
+                          <option value="eu">eu (Central Europe Data Center)</option>
+                          <option value="us">us (Western America Data Center)</option>
+                          <option value="cn">cn (China Data Center)</option>
+                          <option value="in">in (India Data Center)</option>
+                        </select>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center justify-between pt-1">
+                      <button
+                        type="button"
+                        onClick={handleSaveTuyaCredentials}
+                        className="bg-amber-400 hover:bg-amber-300 text-slate-950 font-bold text-xs px-4 py-1.5 rounded-xl transition cursor-pointer flex items-center gap-1.5 shadow-md"
+                      >
+                        {tuyaSavedSuccess ? (
+                          <>
+                            <Check className="w-3.5 h-3.5" />
+                            <span>Credenziali Tuya WebRTC Salvate!</span>
+                          </>
+                        ) : (
+                          <>
+                            <Save className="w-3.5 h-3.5" />
+                            <span>Salva Configurazione Tuya WebRTC</span>
+                          </>
+                        )}
+                      </button>
+
+                      <p className="text-[10px] text-slate-400">
+                        Configurato in <code className="text-amber-300">tuyaConfig.ts</code> / <code className="text-amber-300">localStorage</code>
+                      </p>
+                    </div>
+                  </div>
+
+                  {/* Web IPC Player */}
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between px-1">
+                      <div className="flex items-center gap-2">
+                        <Camera className="w-4 h-4 text-amber-400" />
+                        <span className="text-xs font-bold text-slate-200">Piattaforma Web Smart Life / Tuya IPC</span>
+                      </div>
+                      <a
+                        href="https://ipc-eu.ismartlife.me"
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-[11px] text-amber-400 hover:text-amber-300 font-bold underline"
+                      >
+                        Apri ipc-eu.ismartlife.me ↗
+                      </a>
+                    </div>
+                    <div className="relative rounded-2xl overflow-hidden bg-black border border-white/10 shadow-2xl">
+                      <iframe
+                        src="https://ipc-eu.ismartlife.me"
+                        title="Smart Life Web IPC"
+                        className="w-full h-[500px] border-0"
+                        style={{ width: '100%', height: '500px', border: 0 }}
+                        allow="fullscreen"
+                      />
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Lock Controls */}
+              {device.category === 'lock' && device.state.lock && (
+                <div className="bg-[#0A0A0B] p-5 rounded-2xl border border-white/5 flex flex-col items-center gap-3 text-center">
+                  <div
+                    className={`w-16 h-16 rounded-2xl flex items-center justify-center text-white ${
+                      device.state.lock.locked ? 'bg-emerald-600' : 'bg-amber-600 animate-pulse'
+                    }`}
+                  >
+                    {device.state.lock.locked ? <Lock className="w-8 h-8" /> : <Unlock className="w-8 h-8" />}
+                  </div>
+                  <h4 className="text-base font-bold text-white">
+                    {device.state.lock.locked ? 'Serratura In Sicurezza' : 'Serratura Aperta'}
+                  </h4>
+                  <p className="text-xs text-slate-400">
+                    Ultimo sblocco: {device.state.lock.lastAccessUser || 'Admin'} ({device.state.lock.lastAccessTime})
+                  </p>
+                  <button
+                    onClick={() =>
+                      handleStateChange({
+                        lock: { ...device.state.lock!, locked: !device.state.lock?.locked },
+                      })
+                    }
+                    className={`mt-2 px-6 py-2.5 rounded-xl font-bold text-xs transition cursor-pointer ${
+                      device.state.lock.locked
+                        ? 'bg-amber-500 hover:bg-amber-400 text-black'
+                        : 'bg-emerald-500 hover:bg-emerald-400 text-black'
+                    }`}
+                  >
+                    {device.state.lock.locked ? 'Sblocca Serratura' : 'Blocca Serratura'}
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
+
+          {activeTab === 'edit' && (
+            <div className="bg-[#0A0A0B] p-5 rounded-2xl border border-white/5 space-y-4">
+              <h4 className="text-sm font-bold text-white flex items-center gap-2 border-b border-white/5 pb-3">
+                <Edit3 className="w-4 h-4 text-emerald-400" />
+                <span>Modifica Informazioni e Parametri del Dispositivo</span>
+              </h4>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs">
+                <div>
+                  <label className="text-slate-300 font-bold block mb-1">Nome Dispositivo</label>
+                  <input
+                    type="text"
+                    value={editName}
+                    onChange={(e) => setEditName(e.target.value)}
+                    className="w-full bg-[#121214] border border-white/10 px-3 py-2 rounded-xl text-white font-medium focus:border-emerald-500 focus:outline-none"
+                  />
+                </div>
+
+                <div>
+                  <label className="text-slate-300 font-bold block mb-1">Stanza / Ubicazione</label>
+                  <input
+                    type="text"
+                    value={editRoom}
+                    onChange={(e) => setEditRoom(e.target.value)}
+                    placeholder="es. Salotto, Cucina, Bagno"
+                    className="w-full bg-[#121214] border border-white/10 px-3 py-2 rounded-xl text-white font-medium focus:border-emerald-500 focus:outline-none"
+                  />
+                </div>
+
+                <div>
+                  <label className="text-slate-300 font-bold block mb-1">Categoria Dispositivo</label>
+                  <select
+                    value={editCategory}
+                    onChange={(e) => setEditCategory(e.target.value as any)}
+                    className="w-full bg-[#121214] border border-white/10 px-3 py-2 rounded-xl text-white font-medium focus:border-emerald-500 focus:outline-none"
+                  >
+                    <option value="plug">Presa Smart (Plug)</option>
+                    <option value="light">Illuminazione (Light/RGB)</option>
+                    <option value="thermostat">Termostato (Thermostat)</option>
+                    <option value="camera">Telecamera (Camera IP)</option>
+                    <option value="lock">Serratura Smart (Lock)</option>
+                    <option value="sensor">Sensore (Sensor)</option>
+                    <option value="vacuum">Robot Aspirapolvere</option>
+                    <option value="curtains">Tenda / Tapparella</option>
+                    <option value="switch">Interruttore Relè</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="text-slate-300 font-bold block mb-1">Produttore / Vendor</label>
+                  <input
+                    type="text"
+                    value={editVendor}
+                    onChange={(e) => setEditVendor(e.target.value)}
+                    placeholder="es. Smart Life, Tuya, Sonoff"
+                    className="w-full bg-[#121214] border border-white/10 px-3 py-2 rounded-xl text-white font-medium focus:border-emerald-500 focus:outline-none"
+                  />
+                </div>
+
+                <div>
+                  <label className="text-slate-300 font-bold block mb-1">Tuya Device ID</label>
+                  <input
+                    type="text"
+                    value={editTuyaId}
+                    onChange={(e) => setEditTuyaId(e.target.value)}
+                    placeholder="es. tuya_992109283"
+                    className="w-full bg-[#121214] border border-white/10 px-3 py-2 rounded-xl text-white font-mono focus:border-emerald-500 focus:outline-none"
+                  />
+                </div>
+
+                <div>
+                  <label className="text-slate-300 font-bold block mb-1">Indirizzo IP Locale</label>
+                  <input
+                    type="text"
+                    value={editIp}
+                    onChange={(e) => setEditIp(e.target.value)}
+                    placeholder="192.168.1.108"
+                    className="w-full bg-[#121214] border border-white/10 px-3 py-2 rounded-xl text-white font-mono focus:border-emerald-500 focus:outline-none"
+                  />
+                </div>
+
+                {/* Custom Photo / Image Upload Section */}
+                <div className="bg-[#0A0A0B] p-4 rounded-2xl border border-white/5 space-y-3 col-span-2 sm:col-span-1">
+                  <label className="text-xs font-bold text-amber-300 block uppercase tracking-wider">
+                    Carica Foto Personalizzata Dispositivo
+                  </label>
+                  <div className="flex items-center gap-3">
+                    {editCustomImageUrl ? (
+                      <div className="relative w-14 h-14 rounded-xl overflow-hidden border border-amber-400/60 shadow-md">
+                        <img src={editCustomImageUrl} alt="Custom Preview" className="w-full h-full object-cover" />
+                        <button
+                          type="button"
+                          onClick={() => setEditCustomImageUrl('')}
+                          className="absolute top-0 right-0 bg-rose-600 text-white text-[10px] w-5 h-5 flex items-center justify-center font-black rounded-bl cursor-pointer hover:bg-rose-500"
+                          title="Rimuovi Foto"
+                        >
+                          ✕
+                        </button>
+                      </div>
+                    ) : (
+                      <div className="w-14 h-14 rounded-xl bg-white/5 border border-dashed border-white/20 flex flex-col items-center justify-center text-slate-400">
+                        <Camera className="w-5 h-5 text-amber-400" />
+                        <span className="text-[9px]">No foto</span>
+                      </div>
+                    )}
+
+                    <div className="flex flex-col gap-1.5">
+                      <label className="bg-amber-400/20 hover:bg-amber-400/30 text-amber-300 text-xs font-bold px-3 py-2 rounded-xl cursor-pointer border border-amber-400/30 transition flex items-center gap-2">
+                        <Camera className="w-4 h-4" />
+                        <span>Carica Foto...</span>
+                        <input
+                          type="file"
+                          accept="image/*"
+                          className="hidden"
+                          onChange={async (e) => {
+                            const file = e.target.files?.[0];
+                            if (file) {
+                              const compressed = await compressImageFile(file);
+                              if (compressed) {
+                                setEditCustomImageUrl(compressed);
+                              }
+                            }
+                            // Reset target value so same file can be re-selected if needed
+                            e.target.value = '';
+                          }}
+                        />
+                      </label>
+                      <span className="text-[10px] text-slate-400">Supporta PNG, JPG, WebP</span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Custom Icon Selection Section */}
+                <div className="bg-[#0A0A0B] p-4 rounded-2xl border border-white/5 space-y-3 col-span-2 sm:col-span-1">
+                  <label className="text-xs font-bold text-amber-300 block uppercase tracking-wider">
+                    Cambia Icona Dispositivo
+                  </label>
+                  <div className="flex flex-wrap gap-1.5">
+                    {[
+                      { id: '', label: 'Default' },
+                      { id: 'lightbulb', label: 'Luce' },
+                      { id: 'plug', label: 'Presa' },
+                      { id: 'power', label: 'Interruttore' },
+                      { id: 'camera', label: 'Telecamera' },
+                      { id: 'fan', label: 'Ventilatore' },
+                      { id: 'air-vent', label: 'Condizionatore' },
+                      { id: 'thermometer', label: 'Termostato' },
+                      { id: 'tv', label: 'TV' },
+                      { id: 'lock', label: 'Serratura' },
+                      { id: 'shield', label: 'Sensore' },
+                    ].map((iconOpt) => (
+                      <button
+                        key={iconOpt.id}
+                        type="button"
+                        onClick={() => {
+                          setEditCustomIcon(iconOpt.id);
+                          setEditCustomImageUrl(''); // Clear photo so selected icon displays immediately
+                        }}
+                        className={`px-2.5 py-1 rounded-lg text-[11px] font-bold transition cursor-pointer border ${
+                          editCustomIcon === iconOpt.id && !editCustomImageUrl
+                            ? 'bg-amber-400 text-slate-950 border-amber-300 shadow-sm'
+                            : 'bg-white/5 text-slate-300 border-white/10 hover:bg-white/10'
+                        }`}
+                      >
+                        {iconOpt.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </div>
+
+              <div className="pt-2 flex items-center justify-between">
+                <button
+                  type="button"
+                  onClick={handleSaveFullEdit}
+                  className="bg-emerald-500 hover:bg-emerald-400 text-black font-bold text-xs px-5 py-2.5 rounded-xl transition cursor-pointer flex items-center gap-2 shadow-lg shadow-emerald-500/20"
+                >
+                  {isSaved ? (
+                    <>
+                      <Check className="w-4 h-4 text-black" />
+                      <span>Modifiche Salvate in Firestore Cloud!</span>
+                    </>
+                  ) : (
+                    <>
+                      <Save className="w-4 h-4" />
+                      <span>Salva Modifiche in Tempo Reale</span>
+                    </>
+                  )}
+                </button>
+
+                <p className="text-[11px] text-slate-400">
+                  Le modifiche verranno sincronizzate in live su tutti i client connessi.
+                </p>
+              </div>
+            </div>
+          )}
+
+          {activeTab === 'schedule' && (
+            <div className="space-y-4">
+              <div className="bg-[#0A0A0B] p-4 rounded-2xl border border-white/5 space-y-3">
+                <div className="flex items-center gap-2 text-emerald-400">
+                  <Clock className="w-5 h-5" />
+                  <h4 className="text-sm font-bold text-white">Timer di Spegnimento Automatico</h4>
+                </div>
+                <p className="text-xs text-slate-400">
+                  Imposta un conto alla rovescia dopo il quale il dispositivo si spegnerà automaticamente.
+                </p>
+
+                <div className="flex items-center gap-3">
+                  <input
+                    type="number"
+                    min="1"
+                    max="300"
+                    value={timerMinutes}
+                    onChange={(e) => setTimerMinutes(parseInt(e.target.value, 10))}
+                    className="w-24 bg-[#121214] border border-white/10 text-white font-mono text-center px-3 py-2 rounded-xl focus:border-emerald-500 focus:outline-none"
+                  />
+                  <span className="text-xs text-slate-300">Minuti</span>
+
+                  <button
+                    onClick={() => setTimerRunning(!timerRunning)}
+                    className={`ml-auto px-4 py-2 rounded-xl font-bold text-xs cursor-pointer transition ${
+                      timerRunning
+                        ? 'bg-rose-500 text-white'
+                        : 'bg-emerald-500 text-black hover:bg-emerald-400'
+                    }`}
+                  >
+                    {timerRunning ? 'Annulla Timer' : 'Avvia Timer'}
+                  </button>
+                </div>
+
+                {timerRunning && (
+                  <div className="p-3 bg-emerald-500/10 border border-emerald-500/30 rounded-xl text-xs text-emerald-300 flex items-center justify-between">
+                    <span>Timer attivo per {device.name}</span>
+                    <span className="font-mono font-bold">{timerMinutes}:00 restanti</span>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
+          {activeTab === 'info' && (
+            <div className="space-y-3 text-xs">
+              <div className="bg-[#0A0A0B] p-4 rounded-2xl border border-white/5 space-y-2">
+                <div className="flex justify-between py-1 border-b border-white/5">
+                  <span className="text-slate-400">Tuya Device ID:</span>
+                  <span className="font-mono text-emerald-400 font-bold">{device.tuyaDeviceId || 'N/D'}</span>
+                </div>
+                <div className="flex justify-between py-1 border-b border-white/5">
+                  <span className="text-slate-400">Indirizzo IP Locale:</span>
+                  <span className="font-mono text-white">{device.ipAddress || '192.168.1.108'}</span>
+                </div>
+                <div className="flex justify-between py-1 border-b border-white/5">
+                  <span className="text-slate-400">Indirizzo MAC:</span>
+                  <span className="font-mono text-white">{device.macAddress || 'DC:4F:22:1A:8B:00'}</span>
+                </div>
+                <div className="flex justify-between py-1 border-b border-white/5">
+                  <span className="text-slate-400">Versione Firmware Tuya:</span>
+                  <span className="font-mono text-white">{device.firmwareVersion || 'v2.1.0'}</span>
+                </div>
+                <div className="flex justify-between py-1">
+                  <span className="text-slate-400">Migrato da Smart Life:</span>
+                  <span className="text-emerald-400 font-bold">
+                    {device.transferredFromSmartLife ? `Sì (${device.transferredAt || 'Recentemente'})` : 'No'}
+                  </span>
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* Footer Actions */}
+        <div className="p-4 bg-[#0A0A0B] border-t border-white/5 flex items-center justify-between">
+          {showDeleteConfirm ? (
+            <div className="flex items-center gap-2 bg-rose-500/10 border border-rose-500/30 p-2 rounded-xl">
+              <span className="text-xs text-rose-300 font-bold">Confermi eliminazione?</span>
+              <button
+                type="button"
+                onClick={() => {
+                  onDeleteDevice(device.id);
+                  onClose();
+                }}
+                className="bg-rose-600 hover:bg-rose-500 text-white text-xs font-extrabold px-3 py-1.5 rounded-lg cursor-pointer shadow-md transition"
+              >
+                Sì, Elimina per sempre
+              </button>
+              <button
+                type="button"
+                onClick={() => setShowDeleteConfirm(false)}
+                className="bg-white/10 hover:bg-white/20 text-slate-300 text-xs font-bold px-3 py-1.5 rounded-lg cursor-pointer transition"
+              >
+                Annulla
+              </button>
+            </div>
+          ) : (
+            <button
+              type="button"
+              onClick={() => setShowDeleteConfirm(true)}
+              className="flex items-center gap-2 text-rose-400 hover:text-white bg-rose-500/10 hover:bg-rose-600 border border-rose-500/30 text-xs font-bold px-4 py-2.5 rounded-xl transition cursor-pointer"
+            >
+              <Trash2 className="w-4 h-4" />
+              <span>Elimina dispositivo</span>
+            </button>
+          )}
+
+          <button
+            type="button"
+            onClick={onClose}
+            className="bg-white/10 hover:bg-white/20 text-white font-bold text-xs px-5 py-2.5 rounded-xl transition cursor-pointer border border-white/10"
+          >
+            Chiudi
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+};

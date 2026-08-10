@@ -1,0 +1,6 @@
+{
+  "name": "SmartLife Hub - Domotica & Transfer",
+  "description": "App per la gestione della domotica integrata con migrazione e sincronizzazione dispositivi Smart Life (Tuya), automazioni smart, controllo consumi e assistente AI.",
+  "requestFramePermissions": ["camera"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

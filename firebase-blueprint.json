@@ -1,0 +1,57 @@
+{
+  "entities": {
+    "Device": {
+      "title": "Device",
+      "description": "Smart home device in SmartLife Hub",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "tuyaDeviceId": { "type": "string" },
+        "name": { "type": "string" },
+        "category": { "type": "string" },
+        "room": { "type": "string" },
+        "vendor": { "type": "string" },
+        "isOnline": { "type": "boolean" },
+        "signalStrength": { "type": "number" },
+        "transferredFromSmartLife": { "type": "boolean" },
+        "transferredAt": { "type": "string" },
+        "state": { "type": "object" }
+      },
+      "required": ["id", "name", "category", "room", "state"]
+    },
+    "Automation": {
+      "title": "Automation",
+      "description": "Automation rule or scene in SmartLife Hub",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "title": { "type": "string" },
+        "triggerType": { "type": "string" },
+        "triggerCondition": { "type": "string" },
+        "actions": { "type": "array" },
+        "enabled": { "type": "boolean" },
+        "type": { "type": "string" },
+        "icon": { "type": "string" }
+      },
+      "required": ["id", "title", "actions", "enabled"]
+    }
+  },
+  "firestore": {
+    "collections": {
+      "devices": {
+        "entity": "Device",
+        "security": {
+          "read": "true",
+          "write": "true"
+        }
+      },
+      "automations": {
+        "entity": "Automation",
+        "security": {
+          "read": "true",
+          "write": "true"
+        }
+      }
+    }
+  }
+}
