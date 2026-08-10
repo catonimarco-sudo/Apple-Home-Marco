@@ -527,10 +527,10 @@ export const DeviceDetailModal: React.FC<DeviceDetailModalProps> = ({
                         <video
                           id="tuya-video"
                           ref={videoRef}
-                          src={activeStreamUrl !== 'webrtc-stream-active' ? activeStreamUrl : undefined}
-                          autoPlay
-                          playsInline
-                          controls
+                          src={activeStreamUrl !== 'webrtc-stream-active' ? activeStreamUrl : ''}
+                          autoPlay={true}
+                          playsInline={true}
+                          controls={true}
                           muted={isMuted}
                           className="w-full h-[460px] object-cover bg-black"
                         />

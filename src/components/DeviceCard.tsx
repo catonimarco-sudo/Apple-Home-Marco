@@ -236,11 +236,11 @@ const CameraCard: React.FC<{
               <video
                 id="tuya-video"
                 ref={videoRef}
-                src={activeStreamUrl !== 'webrtc-stream-active' ? activeStreamUrl : undefined}
-                autoPlay
-                playsInline
-                controls
-                muted
+                src={activeStreamUrl !== 'webrtc-stream-active' ? activeStreamUrl : ''}
+                autoPlay={true}
+                playsInline={true}
+                controls={true}
+                muted={true}
                 className="w-full h-full object-cover bg-black"
               />
             ) : (
