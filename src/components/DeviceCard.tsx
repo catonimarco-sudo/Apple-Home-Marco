@@ -65,6 +65,47 @@ const CameraCard: React.FC<{
     }
   }, [device.tuyaDeviceId, device.id]);
 
+  // Automatic WebRTC/HLS Live Stream Startup directly on Home Dashboard CameraCard
+  useEffect(() => {
+    let isMounted = true;
+    const devId = device.tuyaDeviceId || device.id;
+    const cfg = getTuyaConfig(devId);
+    if (!cfg.deviceId && devId) {
+      cfg.deviceId = devId;
+    }
+
+    const autoStartStream = async () => {
+      setIsFetchingStream(true);
+      try {
+        const res = await requestTuyaWebRTCStream(cfg);
+        if (!isMounted) return;
+        if (res.success) {
+          const streamUrl = res.streamUrl || 'webrtc-stream-active';
+          setActiveStreamUrl(streamUrl);
+          saveTuyaConfig({ ...cfg, streamUrl }, devId);
+
+          setTimeout(async () => {
+            if (videoRef.current && isMounted) {
+              await startWebRTCStream(videoRef.current, res, device.name);
+            }
+          }, 100);
+        }
+      } catch (err) {
+        console.warn('Auto-stream initialization error on CameraCard:', err);
+      } finally {
+        if (isMounted) setIsFetchingStream(false);
+      }
+    };
+
+    if (isPlaying && !showTuyaConfigModal) {
+      autoStartStream();
+    }
+
+    return () => {
+      isMounted = false;
+    };
+  }, [device.id, device.tuyaDeviceId, isPlaying, showTuyaConfigModal]);
+
   useEffect(() => {
     const updateTime = () => {
       const now = new Date();
@@ -231,23 +272,31 @@ const CameraCard: React.FC<{
           </div>
         ) : (
           <>
-            {/* HTML5 Native Video element or Background Preview Image */}
-            {activeStreamUrl && isPlaying ? (
-              <video
-                id="tuya-video"
-                ref={videoRef}
-                src={activeStreamUrl !== 'webrtc-stream-active' ? activeStreamUrl : ''}
-                autoPlay={true}
-                playsInline={true}
-                controls={true}
-                muted={true}
-                className="w-full h-full object-cover bg-black"
-              />
+            {/* HTML5 Native Video player on Card with Autoplay */}
+            {isPlaying ? (
+              <div className="relative w-full h-full bg-black">
+                <video
+                  id="tuya-video"
+                  ref={videoRef}
+                  src={activeStreamUrl && activeStreamUrl !== 'webrtc-stream-active' ? activeStreamUrl : ''}
+                  autoPlay={true}
+                  playsInline={true}
+                  controls={true}
+                  muted={true}
+                  className="w-full h-full object-cover bg-black"
+                />
+                {isFetchingStream && (
+                  <div className="absolute inset-0 bg-black/60 backdrop-blur-xs flex items-center justify-center gap-2 text-amber-400 font-mono text-xs z-10 pointer-events-none">
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    <span>Caricamento Streaming Tuya...</span>
+                  </div>
+                )}
+              </div>
             ) : (
               <img
                 src={bgImage}
                 alt={device.name}
-                className={`w-full h-full object-cover transition-all duration-700 ${isPlaying ? 'brightness-90 contrast-105' : 'brightness-50 grayscale'}`}
+                className="w-full h-full object-cover brightness-50 grayscale transition-all duration-700"
               />
             )}
 
