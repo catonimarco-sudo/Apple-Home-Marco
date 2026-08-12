@@ -109,6 +109,8 @@ export interface SmartDevice {
   transferredAt?: string;
   customIcon?: string;
   customImageUrl?: string;
+  channel?: string | null; // Tuya switch channel (e.g. 'switch_1', 'switch_2', 'switch_3', 'switch_4')
+  dpCode?: string | null;
   state: {
     plug?: DevicePlugState;
     light?: DeviceLightState;

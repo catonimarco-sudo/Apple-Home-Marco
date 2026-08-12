@@ -196,6 +196,12 @@ export default function App() {
       (newDev.state as any).power = genPower;
     }
 
+    // Override commandCode if a specific Tuya channel/switch ID is configured (e.g. switch_1, switch_2, switch_3, switch_4)
+    const configuredChannel = d.channel || d.dpCode;
+    if (configuredChannel && configuredChannel !== '1' && configuredChannel !== 'default') {
+      commandCode = configuredChannel;
+    }
+
     // 1. Immediate UI update (changes card color, icon, and 'Accesa'/'Spenta' label instantly)
     setDevices((prev) => prev.map((item) => (item.id === device.id ? newDev : item)));
 

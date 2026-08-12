@@ -103,6 +103,7 @@ export const DeviceDetailModal: React.FC<DeviceDetailModalProps> = ({
   const [editVendor, setEditVendor] = useState<string>(device.vendor);
   const [editTuyaId, setEditTuyaId] = useState<string>(device.tuyaDeviceId || '');
   const [editIp, setEditIp] = useState<string>(device.ipAddress || '');
+  const [editChannel, setEditChannel] = useState<string>(device.channel || device.dpCode || '');
   const [editCustomIcon, setEditCustomIcon] = useState<string>(device.customIcon || '');
   const [editCustomImageUrl, setEditCustomImageUrl] = useState<string>(device.customImageUrl || '');
   const [isSaved, setIsSaved] = useState<boolean>(false);
@@ -136,6 +137,7 @@ export const DeviceDetailModal: React.FC<DeviceDetailModalProps> = ({
       setEditVendor(device.vendor);
       setEditTuyaId(device.tuyaDeviceId || '');
       setEditIp(device.ipAddress || '');
+      setEditChannel(device.channel || device.dpCode || '');
       setEditCustomIcon(device.customIcon || '');
       setEditCustomImageUrl(device.customImageUrl || '');
       setShowDeleteConfirm(false);
@@ -211,6 +213,8 @@ export const DeviceDetailModal: React.FC<DeviceDetailModalProps> = ({
       ipAddress: editIp,
       customIcon: editCustomIcon || '',
       customImageUrl: editCustomImageUrl || '',
+      channel: editChannel ? editChannel : null,
+      dpCode: editChannel ? editChannel : null,
     };
     onUpdateDevice(updated);
     setIsSaved(true);
@@ -776,6 +780,21 @@ export const DeviceDetailModal: React.FC<DeviceDetailModalProps> = ({
                     placeholder="192.168.1.108"
                     className="w-full bg-[#121214] border border-white/10 px-3 py-2 rounded-xl text-white font-mono focus:border-emerald-500 focus:outline-none"
                   />
+                </div>
+
+                <div>
+                  <label className="text-slate-300 font-bold block mb-1">Canale / Switch ID</label>
+                  <select
+                    value={editChannel}
+                    onChange={(e) => setEditChannel(e.target.value)}
+                    className="w-full bg-[#121214] border border-white/10 px-3 py-2 rounded-xl text-white font-medium focus:border-emerald-500 focus:outline-none"
+                  >
+                    <option value="">Predefinito / Singolo</option>
+                    <option value="switch_1">Canale 1 (switch_1)</option>
+                    <option value="switch_2">Canale 2 (switch_2)</option>
+                    <option value="switch_3">Canale 3 (switch_3)</option>
+                    <option value="switch_4">Canale 4 (switch_4)</option>
+                  </select>
                 </div>
 
                 {/* Custom Photo / Image Upload Section */}
