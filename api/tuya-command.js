@@ -1,6 +1,33 @@
 import crypto from 'crypto';
 
 /**
+ * Helper to execute signed GET requests to Tuya OpenAPI
+ */
+async function tuyaGet(urlPath, host, clientAccessId, clientSecret, accessToken) {
+  try {
+    const t = Date.now().toString();
+    const bodySha256 = crypto.createHash('sha256').update('').digest('hex');
+    const stringToSign = ['GET', bodySha256, '', urlPath].join('\n');
+    const signStr = clientAccessId + accessToken + t + stringToSign;
+    const sign = crypto.createHmac('sha256', clientSecret).update(signStr).digest('hex').toUpperCase();
+
+    const res = await fetch(`https://${host}${urlPath}`, {
+      method: 'GET',
+      headers: {
+        client_id: clientAccessId,
+        access_token: accessToken,
+        sign: sign,
+        t: t,
+        sign_method: 'HMAC-SHA256',
+      },
+    });
+    return await res.json();
+  } catch (err) {
+    return null;
+  }
+}
+
+/**
  * Vercel / Serverless API Route for Tuya Device Command Execution
  * POST /api/tuya-command
  * 
@@ -103,68 +130,172 @@ export default async function handler(req, res) {
 
     const accessToken = tokenData.result.access_token;
 
-    // 2. Candidate DP codes fallback for Tuya lights, plugs, switches
+    // 2. Fetch Device Specs, Functions, Status & Metadata dynamically (for Wi-Fi & Zigbee/Hub sub-devices)
+    let dynamicCodes = [];
+    let isSubDevice = false;
+    let gatewayId = null;
+
+    try {
+      const [devInfoRes, devFuncsRes, devStatusRes, devSpecsRes] = await Promise.all([
+        tuyaGet(`/v1.0/devices/${deviceId}`, host, clientAccessId, clientSecret, accessToken),
+        tuyaGet(`/v1.0/devices/${deviceId}/functions`, host, clientAccessId, clientSecret, accessToken),
+        tuyaGet(`/v1.0/devices/${deviceId}/status`, host, clientAccessId, clientSecret, accessToken),
+        tuyaGet(`/v1.0/devices/${deviceId}/specifications`, host, clientAccessId, clientSecret, accessToken),
+      ]);
+
+      if (devInfoRes?.success && devInfoRes?.result) {
+        if (devInfoRes.result.sub || devInfoRes.result.gateway_id) {
+          isSubDevice = true;
+          gatewayId = devInfoRes.result.gateway_id || null;
+        }
+      }
+
+      if (devFuncsRes?.success && devFuncsRes?.result?.functions) {
+        for (const fn of devFuncsRes.result.functions) {
+          if (fn.code && !dynamicCodes.includes(fn.code)) {
+            dynamicCodes.push(fn.code);
+          }
+        }
+      }
+
+      if (devSpecsRes?.success && devSpecsRes?.result?.functions) {
+        for (const fn of devSpecsRes.result.functions) {
+          if (fn.code && !dynamicCodes.includes(fn.code)) {
+            dynamicCodes.push(fn.code);
+          }
+        }
+      }
+
+      if (devStatusRes?.success && Array.isArray(devStatusRes.result)) {
+        for (const st of devStatusRes.result) {
+          if (st.code && !dynamicCodes.includes(st.code)) {
+            dynamicCodes.push(st.code);
+          }
+        }
+      }
+    } catch (err) {
+      console.warn('Dynamic Tuya DP resolution warning:', err?.message || err);
+    }
+
+    // 3. Assemble candidate DP codes with dynamic discovery priority
     const primaryCmd = commandList[0];
-    let candidateCodes = [primaryCmd.code];
+    let candidateCodes = [];
+
+    if (primaryCmd.code) {
+      candidateCodes.push(primaryCmd.code);
+    }
 
     if (typeof primaryCmd.value === 'boolean') {
-      const powerCandidates = ['switch_led', 'switch_1', 'switch', 'led_switch', 'switch_led_1', 'switch_a'];
-      candidateCodes = Array.from(new Set([primaryCmd.code, ...powerCandidates]));
-    } else if (typeof primaryCmd.code === 'string' && primaryCmd.code.includes('bright')) {
+      const dynamicPowerCodes = dynamicCodes.filter((code) => {
+        const lower = code.toLowerCase();
+        return (
+          lower.includes('switch') ||
+          lower.includes('power') ||
+          lower.includes('led') ||
+          lower.includes('on_off') ||
+          lower.includes('socket') ||
+          lower.includes('relay') ||
+          lower.includes('state')
+        );
+      });
+      candidateCodes.push(...dynamicPowerCodes);
+
+      const powerCandidates = [
+        'switch_1',
+        'switch',
+        'switch_led',
+        'led_switch',
+        'switch_led_1',
+        'switch_a',
+        'switch_b',
+        'switch_c',
+        'switch_1_1',
+        'switch_pb_1',
+        'switch_main',
+        'power',
+        'on_off',
+      ];
+      candidateCodes.push(...powerCandidates);
+    } else if (typeof primaryCmd.code === 'string' && (primaryCmd.code.includes('bright') || primaryCmd.code.includes('val'))) {
+      const dynamicBrightCodes = dynamicCodes.filter((code) => {
+        const lower = code.toLowerCase();
+        return lower.includes('bright') || lower.includes('value') || lower.includes('level') || lower.includes('dim');
+      });
+      candidateCodes.push(...dynamicBrightCodes);
+
       const brightCandidates = ['bright_value', 'bright_value_v2', 'brightness', 'value'];
-      candidateCodes = Array.from(new Set([primaryCmd.code, ...brightCandidates]));
+      candidateCodes.push(...brightCandidates);
     }
+
+    candidateCodes.push(...dynamicCodes);
+    candidateCodes = Array.from(new Set(candidateCodes)).filter(Boolean);
 
     let lastErrorMsg = '';
     let lastErrorCode = '';
     let successResult = null;
 
+    // Endpoints to attempt (Standard device endpoint & Smart device endpoint)
+    const endpointPaths = [
+      `/v1.0/devices/${deviceId}/commands`,
+      `/v1.0/smart/device/${deviceId}/commands`
+    ];
+
     for (const codeToTry of candidateCodes) {
       const cmdPayload = [{ code: codeToTry, value: primaryCmd.value }];
-      const t2 = Date.now().toString();
-      const urlPath2 = `/v1.0/devices/${deviceId}/commands`;
       const bodyObj = { commands: cmdPayload };
       const bodyStr = JSON.stringify(bodyObj);
       const bodySha256_2 = crypto.createHash('sha256').update(bodyStr).digest('hex');
-      const stringToSign2 = ['POST', bodySha256_2, '', urlPath2].join('\n');
-      const signStr2 = clientAccessId + accessToken + t2 + stringToSign2;
-      const sign2 = crypto.createHmac('sha256', clientSecret).update(signStr2).digest('hex').toUpperCase();
 
-      try {
-        const commandRes = await fetch(`https://${host}${urlPath2}`, {
-          method: 'POST',
-          headers: {
-            client_id: clientAccessId,
-            access_token: accessToken,
-            sign: sign2,
-            t: t2,
-            sign_method: 'HMAC-SHA256',
-            'Content-Type': 'application/json',
-          },
-          body: bodyStr,
-        });
+      for (const urlPath2 of endpointPaths) {
+        const t2 = Date.now().toString();
+        const stringToSign2 = ['POST', bodySha256_2, '', urlPath2].join('\n');
+        const signStr2 = clientAccessId + accessToken + t2 + stringToSign2;
+        const sign2 = crypto.createHmac('sha256', clientSecret).update(signStr2).digest('hex').toUpperCase();
 
-        const commandData = await commandRes.json();
+        try {
+          const commandRes = await fetch(`https://${host}${urlPath2}`, {
+            method: 'POST',
+            headers: {
+              client_id: clientAccessId,
+              access_token: accessToken,
+              sign: sign2,
+              t: t2,
+              sign_method: 'HMAC-SHA256',
+              'Content-Type': 'application/json',
+            },
+            body: bodyStr,
+          });
 
-        if (commandData && commandData.success) {
-          successResult = {
-            host,
-            success: true,
-            codeUsed: codeToTry,
-            result: commandData.result,
-            message: `Comando '${codeToTry}: ${primaryCmd.value}' inviato con successo a Tuya Cloud!`,
-          };
-          break;
+          const commandData = await commandRes.json();
+
+          if (commandData && commandData.success) {
+            successResult = {
+              host,
+              success: true,
+              codeUsed: codeToTry,
+              isSubDevice,
+              gatewayId,
+              dynamicCodesFound: dynamicCodes,
+              result: commandData.result,
+              message: `Comando '${codeToTry}: ${primaryCmd.value}' inviato con successo a Tuya Cloud!`,
+            };
+            break;
+          }
+
+          lastErrorCode = commandData?.code || 'COMMAND_FAILED';
+          lastErrorMsg = commandData?.msg || 'Errore sconosciuto';
+
+          // If device or code is invalid for this endpoint, break endpoint loop and try next candidate code
+          if (lastErrorCode === '2001' || lastErrorCode === '2008' || lastErrorCode === '1106') {
+            break;
+          }
+        } catch (err) {
+          lastErrorMsg = err?.message || String(err);
         }
+      }
 
-        lastErrorCode = commandData?.code || 'COMMAND_FAILED';
-        lastErrorMsg = commandData?.msg || 'Errore sconosciuto';
-
-        if (lastErrorCode === '2001' || lastErrorCode === '2008' || lastErrorCode === '1106') {
-          break;
-        }
-      } catch (err) {
-        lastErrorMsg = err?.message || String(err);
+      if (successResult) {
+        break;
       }
     }
 
@@ -175,6 +306,8 @@ export default async function handler(req, res) {
     return res.status(400).json({
       success: false,
       code: lastErrorCode,
+      isSubDevice,
+      gatewayId,
       message: `Tuya Cloud (${host}): Errore ${lastErrorCode}: ${lastErrorMsg}`,
     });
   } catch (error) {
@@ -184,3 +317,4 @@ export default async function handler(req, res) {
     });
   }
 }
+
