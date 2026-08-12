@@ -95,7 +95,7 @@ export default async function handler(req, res) {
     // 2. Allocate Live Stream from Tuya OpenAPI (WebRTC / HLS)
     const t2 = Date.now().toString();
     const urlPath2 = `/v1.0/devices/${deviceId}/stream/actions/allocate`;
-    const bodyObj = { type: streamType };
+    const bodyObj = { type: streamType, audio: true };
     const bodyStr = JSON.stringify(bodyObj);
     const bodySha256_2 = crypto.createHash('sha256').update(bodyStr).digest('hex');
     const stringToSign2 = ['POST', bodySha256_2, '', urlPath2].join('\n');

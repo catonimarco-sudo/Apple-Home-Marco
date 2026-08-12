@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { SmartDevice, AutomationRule, RoomName } from './types';
 import { INITIAL_DEVICES, INITIAL_AUTOMATIONS } from './data/mockDevices';
 import { Navbar } from './components/Navbar';
@@ -34,7 +34,10 @@ import {
   Layers, 
   Info,
   ShieldCheck,
-  ChevronRight
+  ChevronRight,
+  GripVertical,
+  Move,
+  RotateCcw
 } from 'lucide-react';
 
 export default function App() {
@@ -334,15 +337,108 @@ export default function App() {
     showToast(`Scena "${rule.title}" eseguita.`);
   };
 
-  // Filtered devices list
-  const filteredDevices = devices.filter((dev) => {
-    const matchesRoom = selectedRoom === 'Tutti' || dev.room === selectedRoom;
-    const matchesSearch =
-      dev.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      dev.room.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      dev.category.toLowerCase().includes(searchQuery.toLowerCase());
-    return matchesRoom && matchesSearch;
+  // Custom Drag-and-Drop Order for Dashboard Devices (saved in localStorage 'dashboard_device_order')
+  const [deviceOrder, setDeviceOrder] = useState<string[]>(() => {
+    try {
+      const saved = localStorage.getItem('dashboard_device_order');
+      return saved ? JSON.parse(saved) : [];
+    } catch {
+      return [];
+    }
   });
+  const [draggedDeviceId, setDraggedDeviceId] = useState<string | null>(null);
+  const [dragOverDeviceId, setDragOverDeviceId] = useState<string | null>(null);
+
+  const handleDragStart = (e: React.DragEvent, id: string) => {
+    setDraggedDeviceId(id);
+    e.dataTransfer.effectAllowed = 'move';
+    e.dataTransfer.setData('text/plain', id);
+  };
+
+  const handleDragOver = (e: React.DragEvent, id: string) => {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+    if (dragOverDeviceId !== id) {
+      setDragOverDeviceId(id);
+    }
+  };
+
+  const handleDragLeave = (e: React.DragEvent, id: string) => {
+    if (dragOverDeviceId === id) {
+      setDragOverDeviceId(null);
+    }
+  };
+
+  const handleDrop = (e: React.DragEvent, targetId: string) => {
+    e.preventDefault();
+    const sourceId = draggedDeviceId || e.dataTransfer.getData('text/plain');
+    if (!sourceId || sourceId === targetId) {
+      setDraggedDeviceId(null);
+      setDragOverDeviceId(null);
+      return;
+    }
+
+    const currentIds = filteredDevices.map((d) => d.id);
+    const sourceIndex = currentIds.indexOf(sourceId);
+    const targetIndex = currentIds.indexOf(targetId);
+
+    if (sourceIndex !== -1 && targetIndex !== -1) {
+      const updatedIds = [...currentIds];
+      const [moved] = updatedIds.splice(sourceIndex, 1);
+      updatedIds.splice(targetIndex, 0, moved);
+
+      // Merge with all device IDs to ensure non-visible filtered devices keep their ordering
+      const allDeviceIds = devices.map((d) => d.id);
+      const fullOrder = Array.from(new Set([...updatedIds, ...deviceOrder, ...allDeviceIds]));
+
+      setDeviceOrder(fullOrder);
+      try {
+        localStorage.setItem('dashboard_device_order', JSON.stringify(fullOrder));
+      } catch (err) {
+        console.warn('LocalStorage save error:', err);
+      }
+      showToast('Nuovo ordine dispositivi salvato!');
+    }
+
+    setDraggedDeviceId(null);
+    setDragOverDeviceId(null);
+  };
+
+  const handleDragEnd = () => {
+    setDraggedDeviceId(null);
+    setDragOverDeviceId(null);
+  };
+
+  const handleResetDeviceOrder = () => {
+    setDeviceOrder([]);
+    localStorage.removeItem('dashboard_device_order');
+    showToast('Ordine originale dei dispositivi ripristinato.');
+  };
+
+  // Filtered & Custom Ordered devices list
+  const filteredDevices = useMemo(() => {
+    const list = devices.filter((dev) => {
+      const matchesRoom = selectedRoom === 'Tutti' || dev.room === selectedRoom;
+      const matchesSearch =
+        dev.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        dev.room.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        dev.category.toLowerCase().includes(searchQuery.toLowerCase());
+      return matchesRoom && matchesSearch;
+    });
+
+    if (deviceOrder.length > 0) {
+      list.sort((a, b) => {
+        const indexA = deviceOrder.indexOf(a.id);
+        const indexB = deviceOrder.indexOf(b.id);
+        if (indexA !== -1 && indexB !== -1) return indexA - indexB;
+        if (indexA !== -1) return -1;
+        if (indexB !== -1) return 1;
+        return 0;
+      });
+    }
+
+    return list;
+  }, [devices, selectedRoom, searchQuery, deviceOrder]);
 
   const totalActiveCount = devices.filter(
     (d) =>
@@ -453,15 +549,30 @@ export default function App() {
                   <span>
                     {selectedRoom === 'Tutti' ? 'Tutti i Dispositivi' : `Stanza: ${selectedRoom}`} ({filteredDevices.length})
                   </span>
+                  <span className="text-[10px] text-amber-300/80 normal-case font-normal hidden sm:inline-flex items-center gap-1 bg-white/5 px-2 py-0.5 rounded-full border border-white/10">
+                    <Move className="w-3 h-3 text-amber-400" /> Trascina per riordinare
+                  </span>
                 </h3>
 
-                <button
-                  onClick={() => setIsTransferModalOpen(true)}
-                  className="text-xs text-amber-300 hover:text-amber-200 font-semibold flex items-center gap-1.5 cursor-pointer bg-amber-400/10 hover:bg-amber-400/20 px-3 py-1 rounded-full border border-amber-400/20 transition"
-                >
-                  <RefreshCw className="w-3.5 h-3.5" />
-                  <span>Sincronizza Tuya</span>
-                </button>
+                <div className="flex items-center gap-2">
+                  {deviceOrder.length > 0 && (
+                    <button
+                      onClick={handleResetDeviceOrder}
+                      className="text-xs text-slate-400 hover:text-white font-medium flex items-center gap-1 cursor-pointer bg-white/5 hover:bg-white/10 px-2.5 py-1 rounded-full border border-white/10 transition"
+                      title="Ripristina ordine predefinito"
+                    >
+                      <RotateCcw className="w-3 h-3" />
+                      <span className="hidden sm:inline">Ripristina Ordine</span>
+                    </button>
+                  )}
+                  <button
+                    onClick={() => setIsTransferModalOpen(true)}
+                    className="text-xs text-amber-300 hover:text-amber-200 font-semibold flex items-center gap-1.5 cursor-pointer bg-amber-400/10 hover:bg-amber-400/20 px-3 py-1 rounded-full border border-amber-400/20 transition"
+                  >
+                    <RefreshCw className="w-3.5 h-3.5" />
+                    <span>Sincronizza Tuya</span>
+                  </button>
+                </div>
               </div>
 
               {filteredDevices.length === 0 ? (
@@ -476,16 +587,43 @@ export default function App() {
                 </div>
               ) : (
                 <div className="grid grid-cols-2 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3 sm:gap-4">
-                  {filteredDevices.map((dev) => (
-                    <DeviceCard
-                      key={dev.id}
-                      device={dev}
-                      onTogglePower={handleTogglePower}
-                      onUpdateState={handleUpdateDeviceState}
-                      onClickDetail={(d) => setSelectedDevice(d)}
-                      onDeleteDevice={handleDeleteDevice}
-                    />
-                  ))}
+                  {filteredDevices.map((dev) => {
+                    const isDragging = draggedDeviceId === dev.id;
+                    const isDragOver = dragOverDeviceId === dev.id;
+
+                    return (
+                      <div
+                        key={dev.id}
+                        draggable={true}
+                        onDragStart={(e) => handleDragStart(e, dev.id)}
+                        onDragOver={(e) => handleDragOver(e, dev.id)}
+                        onDragLeave={(e) => handleDragLeave(e, dev.id)}
+                        onDrop={(e) => handleDrop(e, dev.id)}
+                        onDragEnd={handleDragEnd}
+                        className={`relative group/drag transition-all duration-200 rounded-[26px] ${
+                          isDragging ? 'opacity-40 scale-95 border-2 border-dashed border-amber-400' : ''
+                        } ${
+                          isDragOver ? 'ring-2 ring-amber-400 scale-[1.02] shadow-2xl z-20' : ''
+                        }`}
+                      >
+                        {/* Drag Handle Overlay Badge */}
+                        <div
+                          className="absolute top-2 left-2 z-30 opacity-0 group-hover/drag:opacity-100 transition-opacity bg-black/70 backdrop-blur-md p-1 rounded-lg border border-white/20 text-slate-300 cursor-grab active:cursor-grabbing hover:text-amber-400 shadow-md"
+                          title="Trascina per spostare la card"
+                        >
+                          <GripVertical className="w-4 h-4" />
+                        </div>
+
+                        <DeviceCard
+                          device={dev}
+                          onTogglePower={handleTogglePower}
+                          onUpdateState={handleUpdateDeviceState}
+                          onClickDetail={(d) => setSelectedDevice(d)}
+                          onDeleteDevice={handleDeleteDevice}
+                        />
+                      </div>
+                    );
+                  })}
                 </div>
               )}
             </div>

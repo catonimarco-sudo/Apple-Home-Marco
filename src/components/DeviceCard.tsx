@@ -26,7 +26,9 @@ import {
   Key,
   Save,
   Check,
-  Loader2
+  Loader2,
+  Volume2,
+  VolumeX
 } from 'lucide-react';
 
 interface DeviceCardProps {
@@ -43,6 +45,7 @@ const CameraCard: React.FC<{
   onClickDetail: (device: SmartDevice) => void;
 }> = ({ device, onClickDetail }) => {
   const [isPlaying, setIsPlaying] = useState<boolean>(false);
+  const [isMuted, setIsMuted] = useState<boolean>(true);
   const [showTuyaConfigModal, setShowTuyaConfigModal] = useState<boolean>(false);
   const [tuyaForm, setTuyaForm] = useState<TuyaCameraConfig>(() =>
     getTuyaConfig(device.tuyaDeviceId || device.id)
@@ -55,6 +58,12 @@ const CameraCard: React.FC<{
   const [snapshotNotice, setSnapshotNotice] = useState<boolean>(false);
   const videoRef = useRef<HTMLVideoElement>(null);
   const peerConnectionRef = useRef<RTCPeerConnection | null>(null);
+
+  useEffect(() => {
+    if (videoRef.current) {
+      videoRef.current.muted = isMuted;
+    }
+  }, [isMuted]);
 
   useEffect(() => {
     const devId = device.tuyaDeviceId || device.id;
@@ -302,7 +311,7 @@ const CameraCard: React.FC<{
                   autoPlay={true}
                   playsInline={true}
                   controls={true}
-                  muted={true}
+                  muted={isMuted}
                   className="w-full h-full object-cover bg-black"
                 />
                 {isFetchingStream && (
@@ -335,6 +344,23 @@ const CameraCard: React.FC<{
               </div>
 
               <div className="flex items-center gap-1.5">
+                {isPlaying && (
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setIsMuted(!isMuted);
+                    }}
+                    className="p-1.5 rounded-full bg-black/50 hover:bg-black/70 text-white border border-white/20 backdrop-blur-md transition cursor-pointer flex items-center justify-center shadow-lg hover:border-amber-400"
+                    title={isMuted ? 'Attiva Audio' : 'Disattiva Audio (Mute)'}
+                  >
+                    {isMuted ? (
+                      <VolumeX className="w-3.5 h-3.5 text-rose-400" />
+                    ) : (
+                      <Volume2 className="w-3.5 h-3.5 text-emerald-400" />
+                    )}
+                  </button>
+                )}
                 <button
                   type="button"
                   onClick={(e) => {

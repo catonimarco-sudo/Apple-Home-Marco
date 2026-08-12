@@ -123,6 +123,12 @@ export const DeviceDetailModal: React.FC<DeviceDetailModalProps> = ({
   const videoRef = useRef<HTMLVideoElement>(null);
 
   useEffect(() => {
+    if (videoRef.current) {
+      videoRef.current.muted = isMuted;
+    }
+  }, [isMuted]);
+
+  useEffect(() => {
     if (device) {
       setEditName(device.name);
       setEditRoom(device.room);
@@ -524,16 +530,38 @@ export const DeviceDetailModal: React.FC<DeviceDetailModalProps> = ({
                     {/* HTML5 Native Video Frame */}
                     <div className="relative rounded-2xl overflow-hidden bg-black border border-white/10 shadow-2xl min-h-[360px] flex items-center justify-center group">
                       {activeStreamUrl ? (
-                        <video
-                          id="tuya-video"
-                          ref={videoRef}
-                          src={activeStreamUrl && activeStreamUrl !== 'webrtc-stream-active' ? activeStreamUrl : undefined}
-                          autoPlay={true}
-                          playsInline={true}
-                          controls={true}
-                          muted={isMuted}
-                          className="w-full h-[460px] object-cover bg-black"
-                        />
+                        <>
+                          <video
+                            id="tuya-video"
+                            ref={videoRef}
+                            src={activeStreamUrl && activeStreamUrl !== 'webrtc-stream-active' ? activeStreamUrl : undefined}
+                            autoPlay={true}
+                            playsInline={true}
+                            controls={true}
+                            muted={isMuted}
+                            className="w-full h-[460px] object-cover bg-black"
+                          />
+                          <div className="absolute top-4 right-4 z-20">
+                            <button
+                              type="button"
+                              onClick={() => setIsMuted(!isMuted)}
+                              className="p-2 rounded-full bg-black/60 hover:bg-black/80 text-white border border-white/20 backdrop-blur-md transition cursor-pointer flex items-center gap-1.5 shadow-xl hover:border-amber-400 text-xs font-semibold px-3"
+                              title={isMuted ? 'Attiva Audio' : 'Disattiva Audio (Mute)'}
+                            >
+                              {isMuted ? (
+                                <>
+                                  <VolumeX className="w-4 h-4 text-rose-400" />
+                                  <span>Audio Disattivato</span>
+                                </>
+                              ) : (
+                                <>
+                                  <Volume2 className="w-4 h-4 text-emerald-400" />
+                                  <span>Audio Attivo</span>
+                                </>
+                              )}
+                            </button>
+                          </div>
+                        </>
                       ) : (
                         <div className="relative w-full h-[460px] bg-slate-950 flex flex-col items-center justify-center p-6 text-center space-y-3 overflow-hidden">
                           {device.customImageUrl ? (

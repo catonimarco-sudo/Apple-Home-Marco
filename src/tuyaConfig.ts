@@ -119,6 +119,7 @@ export async function requestTuyaWebRTCStream(config: TuyaCameraConfig): Promise
         deviceId: config.deviceId,
         region: config.region || 'eu',
         streamType: 'webrtc',
+        audio: true,
       }),
     });
 
@@ -225,14 +226,17 @@ export async function startWebRTCStream(
 
     // Handle incoming MediaStream tracks and assign directly to videoElement.srcObject
     pc.ontrack = (event) => {
+      let currentStream = videoElement.srcObject as MediaStream | null;
       if (event.streams && event.streams[0]) {
         videoElement.srcObject = event.streams[0];
-        videoElement.play().catch((err) => console.log('WebRTC track autoplay warning:', err));
       } else if (event.track) {
-        const newStream = new MediaStream([event.track]);
-        videoElement.srcObject = newStream;
-        videoElement.play().catch((err) => console.log('WebRTC track autoplay warning:', err));
+        if (!currentStream || !(currentStream instanceof MediaStream)) {
+          currentStream = new MediaStream();
+          videoElement.srcObject = currentStream;
+        }
+        currentStream.addTrack(event.track);
       }
+      videoElement.play().catch((err) => console.log('WebRTC track autoplay warning:', err));
     };
 
     pc.addTransceiver('video', { direction: 'recvonly' });
