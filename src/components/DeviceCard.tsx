@@ -200,7 +200,7 @@ const CameraCard: React.FC<{
   const bgImage = device.customImageUrl || 'https://images.unsplash.com/photo-1558036117-15d82a90b9b1?auto=format&fit=crop&w=800&q=80';
 
   return (
-    <div className="col-span-2 sm:col-span-2 md:col-span-2 lg:col-span-2 bg-white dark:bg-[#18181c] rounded-[24px] border border-slate-200/80 dark:border-white/10 overflow-hidden shadow-md flex flex-col group transition hover:border-amber-400/40">
+    <div className="w-full bg-white dark:bg-[#18181c] rounded-[24px] border border-slate-200/80 dark:border-white/10 overflow-hidden shadow-md flex flex-col group transition hover:border-amber-400/40">
       {/* Video Container Frame */}
       <div className="relative w-full h-[210px] sm:h-[250px] bg-black overflow-hidden select-none">
         {showTuyaConfigModal ? (

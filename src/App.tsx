@@ -590,6 +590,7 @@ export default function App() {
                   {filteredDevices.map((dev) => {
                     const isDragging = draggedDeviceId === dev.id;
                     const isDragOver = dragOverDeviceId === dev.id;
+                    const isCamera = dev.category === 'camera' || dev.customIcon === 'camera' || dev.name.toLowerCase().includes('telecamera') || dev.name.toLowerCase().includes('camera');
 
                     return (
                       <div
@@ -601,6 +602,8 @@ export default function App() {
                         onDrop={(e) => handleDrop(e, dev.id)}
                         onDragEnd={handleDragEnd}
                         className={`relative group/drag transition-all duration-200 rounded-[26px] ${
+                          isCamera ? 'col-span-full' : ''
+                        } ${
                           isDragging ? 'opacity-40 scale-95 border-2 border-dashed border-amber-400' : ''
                         } ${
                           isDragOver ? 'ring-2 ring-amber-400 scale-[1.02] shadow-2xl z-20' : ''
