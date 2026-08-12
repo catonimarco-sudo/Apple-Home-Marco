@@ -7,7 +7,9 @@ export type DeviceCategory =
   | 'sensor'
   | 'vacuum'
   | 'curtains'
-  | 'switch';
+  | 'switch'
+  | 'gate'
+  | 'pulsed_switch';
 
 export type RoomName = 
   | 'Salotto'

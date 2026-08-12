@@ -746,6 +746,7 @@ export const DeviceDetailModal: React.FC<DeviceDetailModalProps> = ({
                     <option value="vacuum">Robot Aspirapolvere</option>
                     <option value="curtains">Tenda / Tapparella</option>
                     <option value="switch">Interruttore Relè</option>
+                    <option value="gate">Apricancello / Relè Impulsivo</option>
                   </select>
                 </div>
 
@@ -794,6 +795,8 @@ export const DeviceDetailModal: React.FC<DeviceDetailModalProps> = ({
                     <option value="switch_2">Canale 2 (switch_2)</option>
                     <option value="switch_3">Canale 3 (switch_3)</option>
                     <option value="switch_4">Canale 4 (switch_4)</option>
+                    <option value="button_1">Pulsante 1 (button_1)</option>
+                    <option value="switch">Generico (switch)</option>
                   </select>
                 </div>
 

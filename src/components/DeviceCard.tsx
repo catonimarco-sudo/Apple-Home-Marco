@@ -503,6 +503,9 @@ export const DeviceCard: React.FC<DeviceCardProps> = ({
         return Boolean(state.plug?.power);
       case 'switch':
         return Boolean(state.switch?.power);
+      case 'gate':
+      case 'pulsed_switch':
+        return Boolean(state.switch?.power || (state as any)?.power);
       case 'thermostat':
         return Boolean(state.thermostat?.power);
       case 'camera':
@@ -542,6 +545,9 @@ export const DeviceCard: React.FC<DeviceCardProps> = ({
     }
     if (category === 'vacuum') {
       return state.vacuum?.status === 'cleaning' ? 'In pulizia' : 'OFF';
+    }
+    if (category === 'gate' || category === 'pulsed_switch') {
+      return isPowerOn ? 'In apertura...' : 'OFF';
     }
     return 'ON';
   };
@@ -613,6 +619,13 @@ export const DeviceCard: React.FC<DeviceCardProps> = ({
       return (
         <div className={badgeClasses}>
           <Power className={`w-5 h-5 ${isPowerOn ? 'text-slate-900 font-bold' : 'text-amber-400 font-bold'}`} />
+        </div>
+      );
+    }
+    if (iconType === 'gate' || iconType === 'pulsed_switch' || category === 'gate' || category === 'pulsed_switch') {
+      return (
+        <div className={badgeClasses}>
+          <Key className={`w-5 h-5 ${isPowerOn ? 'text-slate-900 font-bold' : 'text-amber-400 font-bold'}`} />
         </div>
       );
     }

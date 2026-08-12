@@ -89,6 +89,8 @@ export const AddDeviceModal: React.FC<AddDeviceModalProps> = ({
               <option value="sensor">Sensore Movimento / Porta / Allagamento</option>
               <option value="vacuum">Robot Aspirapolvere</option>
               <option value="curtains">Tapparella / Tenda Motorizzata</option>
+              <option value="switch">Interruttore Relè</option>
+              <option value="gate">Apricancello / Relè Impulsivo</option>
             </select>
           </div>
 

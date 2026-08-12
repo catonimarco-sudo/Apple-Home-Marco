@@ -111,6 +111,74 @@ export default function App() {
     const d = device;
     const newDev = { ...d, state: { ...d.state } };
 
+    const isGateOrImpulse = d.category === 'gate' || d.category === 'pulsed_switch' || d.customIcon === 'gate' || d.customIcon === 'pulsed_switch';
+
+    if (isGateOrImpulse) {
+      let cmdCode = 'switch_1';
+      const configuredChannel = d.channel || d.dpCode;
+      if (configuredChannel && configuredChannel !== '1' && configuredChannel !== 'default') {
+        cmdCode = configuredChannel;
+      }
+
+      // 1. Immediate UI update to ON state ("In apertura...")
+      const activeDev: SmartDevice = {
+        ...d,
+        state: {
+          ...d.state,
+          switch: {
+            ...(d.state.switch || { gangs: [true] }),
+            power: true,
+            gangs: [true],
+          },
+          ...((d.state as any)?.power !== undefined ? { power: true } : {}),
+        },
+      };
+
+      setDevices((prev) => prev.map((item) => (item.id === device.id ? activeDev : item)));
+      showToast(`Inviato impulso a "${device.name}" (In apertura...)`);
+
+      const tuyaId = d.tuyaDeviceId || d.id;
+      if (tuyaId) {
+        sendTuyaCommand(tuyaId, cmdCode, true).catch((err) => console.warn('Tuya gate ON command notice:', err));
+      }
+
+      try {
+        await saveDeviceToDb(activeDev);
+      } catch (dbErr) {
+        console.warn('Firestore sync warning:', dbErr);
+      }
+
+      // 2. Automatic reset back to false after 1 second (1000 ms)
+      setTimeout(async () => {
+        const resetDev: SmartDevice = {
+          ...d,
+          state: {
+            ...d.state,
+            switch: {
+              ...(d.state.switch || { gangs: [false] }),
+              power: false,
+              gangs: [false],
+            },
+            ...((d.state as any)?.power !== undefined ? { power: false } : {}),
+          },
+        };
+
+        setDevices((prev) => prev.map((item) => (item.id === device.id ? resetDev : item)));
+
+        if (tuyaId) {
+          sendTuyaCommand(tuyaId, cmdCode, false).catch((err) => console.warn('Tuya gate OFF command notice:', err));
+        }
+
+        try {
+          await saveDeviceToDb(resetDev);
+        } catch (dbErr) {
+          console.warn('Firestore sync warning:', dbErr);
+        }
+      }, 1000);
+
+      return;
+    }
+
     let commandCode = 'switch_1';
     let commandValue: boolean = true;
 
