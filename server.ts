@@ -118,6 +118,26 @@ app.all("/api/tuya-sync", tuyaSyncHandler);
 app.all("/api/smart-life/sync", tuyaSyncHandler);
 app.all("/api/tuya/sync", tuyaSyncHandler);
 
+function formatTuyaError(code: string, rawMsg: string, host: string): string {
+  const codeStr = String(code || '');
+  if (codeStr === '60001001') {
+    return `Tuya Cloud (${host}): Errore 60001001 - Quota API Tuya o Prova Gratuita Esaurita (controllable device pool quota is insufficient). Per ripristinare il controllo: accedi a iot.tuya.com -> Cloud -> Sviluppo -> Il Mio Servizio -> IoT Core e fai clic su "Estendi Prova Gratuita" (Free Trial Extension).`;
+  }
+  if (codeStr === '28841002' || codeStr === '28841001') {
+    return `Tuya Cloud (${host}): Errore ${codeStr} - Periodo di prova API Tuya scaduto. Accedi a iot.tuya.com -> Cloud -> Sviluppo -> Il Mio Servizio -> IoT Core per rinnovare gratuitamente la licenza.`;
+  }
+  if (codeStr === '2001') {
+    return `Tuya Cloud (${host}): Errore 2001 - Dispositivo Tuya offline o disconnesso dal Wi-Fi. Verifica alimentazione e connessione rete.`;
+  }
+  if (codeStr === '2008' || codeStr === '1106') {
+    return `Tuya Cloud (${host}): Errore ${codeStr} - ID Dispositivo non trovato nell'account Tuya Developer.`;
+  }
+  if (codeStr === '1102') {
+    return `Tuya Cloud (${host}): Errore 1102 - Client ID o Client Secret non validi per l'API Tuya.`;
+  }
+  return `Tuya Cloud (${host}): Errore ${codeStr}: ${rawMsg || 'Errore durante la comunicazione'}`;
+}
+
 /**
  * Send Command to Tuya Cloud Device (POST /v1.0/devices/{device_id}/commands)
  * Uses candidate DP code fallback (e.g. switch_led, switch_1, switch, led_switch)
@@ -130,6 +150,7 @@ async function sendTuyaDeviceCommand(
   deviceId: string,
   commands: Array<{ code: string; value: any }>
 ) {
+  const cleanDeviceId = String(deviceId || '').trim();
   const regionHosts: Record<string, string> = {
     eu: "openapi.tuyaeu.com",
     us: "openapi.tuyaus.com",
@@ -188,7 +209,7 @@ async function sendTuyaDeviceCommand(
   for (const codeToTry of candidateCodes) {
     const cmdPayload = [{ code: codeToTry, value: primaryCmd.value }];
     const t2 = Date.now().toString();
-    const urlPath2 = `/v1.0/devices/${deviceId}/commands`;
+    const urlPath2 = `/v1.0/devices/${cleanDeviceId}/commands`;
     const bodyObj = { commands: cmdPayload };
     const bodyStr = JSON.stringify(bodyObj);
     const bodySha256_2 = crypto.createHash("sha256").update(bodyStr).digest("hex");
@@ -225,8 +246,8 @@ async function sendTuyaDeviceCommand(
       lastErrorCode = commandData?.code || "COMMAND_FAILED";
       lastErrorMsg = commandData?.msg || "Errore sconosciuto";
 
-      // If error is device offline (2001) or device not exist (2008 / 1106), no need to loop through code candidates
-      if (lastErrorCode === "2001" || lastErrorCode === "2008" || lastErrorCode === "1106") {
+      // If device offline, quota exceeded, trial expired, or device not found, break loop
+      if (["2001", "2008", "1106", "1108", "60001001", "28841002", "28841001"].includes(String(lastErrorCode))) {
         break;
       }
     } catch (e: any) {
@@ -238,7 +259,7 @@ async function sendTuyaDeviceCommand(
     host,
     success: false,
     code: lastErrorCode,
-    message: `Tuya Cloud (${host}): [Errore ${lastErrorCode}: ${lastErrorMsg}]. Verificare che il dispositivo sia online e collegato all'account Tuya.`,
+    message: formatTuyaError(lastErrorCode, lastErrorMsg, host),
   };
 }
 

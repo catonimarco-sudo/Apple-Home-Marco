@@ -27,8 +27,6 @@ export const AIAssistantDrawer: React.FC<AIAssistantDrawerProps> = ({
   automations,
   onOpenTransferModal,
 }) => {
-  if (!isOpen) return null;
-
   const [messages, setMessages] = useState<ChatMessage[]>([
     {
       id: 'msg-1',
@@ -40,6 +38,8 @@ export const AIAssistantDrawer: React.FC<AIAssistantDrawerProps> = ({
 
   const [inputMessage, setInputMessage] = useState<string>('');
   const [loading, setLoading] = useState<boolean>(false);
+
+  if (!isOpen) return null;
 
   const handleSendMessage = async (textToSend?: string) => {
     const query = textToSend || inputMessage;

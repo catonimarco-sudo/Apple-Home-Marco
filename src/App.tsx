@@ -31,19 +31,25 @@ import {
   Zap, 
   Cpu, 
   CheckCircle2, 
+  AlertCircle,
   Layers, 
   Info,
   ShieldCheck,
   ChevronRight,
   GripVertical,
   Move,
-  RotateCcw
+  RotateCcw,
+  ExternalLink,
+  X
 } from 'lucide-react';
 
 export default function App() {
   // Devices and Automations synced real-time from Firestore Cloud DB
   const [devices, setDevices] = useState<SmartDevice[]>(INITIAL_DEVICES);
   const [automations, setAutomations] = useState<AutomationRule[]>(INITIAL_AUTOMATIONS);
+
+  // Tuya Cloud Quota Alert Banner state
+  const [tuyaQuotaBannerVisible, setTuyaQuotaBannerVisible] = useState(false);
 
   // UI Navigation & Filters
   const [activeTab, setActiveTab] = useState<'devices' | 'automations' | 'energy' | 'ai'>('devices');
@@ -101,9 +107,10 @@ export default function App() {
     };
   }, []);
 
-  const showToast = (msg: string) => {
+  const showToast = (msg: string, duration = 3000) => {
     setToastMessage(msg);
-    setTimeout(() => setToastMessage(null), 3000);
+    const timeoutDuration = msg.includes('⚠️') || msg.length > 50 ? 6500 : duration;
+    setTimeout(() => setToastMessage(null), timeoutDuration);
   };
 
   // Device Action Handlers - Persisted to Firestore Cloud DB & Tuya Cloud OpenAPI
@@ -115,9 +122,10 @@ export default function App() {
 
     if (isGateOrImpulse) {
       let cmdCode = 'switch_1';
-      const configuredChannel = d.channel || d.dpCode;
-      if (configuredChannel && configuredChannel !== '1' && configuredChannel !== 'default') {
-        cmdCode = configuredChannel;
+      if (d.dpCode && d.dpCode.trim()) {
+        cmdCode = d.dpCode.trim();
+      } else if (d.channel && d.channel !== '1' && d.channel !== 'default') {
+        cmdCode = d.channel;
       }
 
       // 1. Immediate UI update to ON state ("In apertura...")
@@ -139,7 +147,13 @@ export default function App() {
 
       const tuyaId = d.tuyaDeviceId || d.id;
       if (tuyaId) {
-        sendTuyaCommand(tuyaId, cmdCode, true).catch((err) => console.warn('Tuya gate ON command notice:', err));
+        sendTuyaCommand(tuyaId, cmdCode, true, undefined, {
+          category: d.category,
+          isGate: true,
+          dpCode: cmdCode,
+        })
+          .then((res) => console.log('Tuya Response Gate:', res))
+          .catch((err) => console.warn('Tuya gate ON command notice:', err));
       }
 
       try {
@@ -148,7 +162,7 @@ export default function App() {
         console.warn('Firestore sync warning:', dbErr);
       }
 
-      // 2. Automatic reset back to false after 1 second (1000 ms)
+      // 2. Automatic reset back to false after 1 second (1000 ms) in UI local state
       setTimeout(async () => {
         const resetDev: SmartDevice = {
           ...d,
@@ -164,10 +178,6 @@ export default function App() {
         };
 
         setDevices((prev) => prev.map((item) => (item.id === device.id ? resetDev : item)));
-
-        if (tuyaId) {
-          sendTuyaCommand(tuyaId, cmdCode, false).catch((err) => console.warn('Tuya gate OFF command notice:', err));
-        }
 
         try {
           await saveDeviceToDb(resetDev);
@@ -284,13 +294,21 @@ export default function App() {
     const tuyaId = d.tuyaDeviceId || d.id;
     if (tuyaId) {
       try {
-        const res = await sendTuyaCommand(tuyaId, commandCode, commandValue);
+        const res = await sendTuyaCommand(tuyaId, commandCode, commandValue, undefined, {
+          category: d.category,
+          dpCode: d.dpCode || commandCode,
+        });
         if (res.success) {
           showToast(`Stato aggiornato Tuya: ${device.name} ${commandValue ? 'Acceso' : 'Spento'}`);
         } else {
           // Do NOT rollback local state! Keep user's state toggled and log Tuya response
           console.warn('Tuya Cloud command notice:', res.message);
-          showToast(`${device.name} ${commandValue ? 'Acceso' : 'Spento'} (Stato Locale)`);
+          if (res.message && (res.message.includes('60001001') || res.message.toLowerCase().includes('quota') || res.message.includes('28841002'))) {
+            setTuyaQuotaBannerVisible(true);
+            showToast(`⚠️ Quota Tuya Esaurita (Errore 60001001): Estendi la prova gratuita di "IoT Core" su iot.tuya.com`);
+          } else {
+            showToast(`${device.name} ${commandValue ? 'Acceso' : 'Spento'} (Stato Locale)`);
+          }
         }
       } catch (err: any) {
         console.warn('Tuya network warning:', err);
@@ -549,9 +567,17 @@ export default function App() {
 
       {/* Toast Notification */}
       {toastMessage && (
-        <div className="fixed bottom-6 right-6 z-50 bg-white text-slate-950 px-5 py-3 rounded-full font-extrabold text-xs shadow-2xl flex items-center gap-2.5 animate-in fade-in slide-in-from-bottom duration-200 border border-amber-300">
-          <CheckCircle2 className="w-4 h-4 text-emerald-600" />
-          <span>{toastMessage}</span>
+        <div className={`fixed bottom-6 right-6 z-50 px-5 py-3.5 rounded-2xl font-semibold text-xs shadow-2xl flex items-center gap-3 animate-in fade-in slide-in-from-bottom duration-200 ${
+          toastMessage.includes('⚠️') || toastMessage.includes('Errore')
+            ? 'bg-amber-950/95 text-amber-100 border border-amber-500/50 backdrop-blur-md max-w-md'
+            : 'bg-white text-slate-950 border border-amber-300'
+        }`}>
+          {toastMessage.includes('⚠️') ? (
+            <AlertCircle className="w-5 h-5 text-amber-400 shrink-0" />
+          ) : (
+            <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+          )}
+          <span className="leading-tight">{toastMessage}</span>
         </div>
       )}
 
@@ -571,6 +597,50 @@ export default function App() {
 
       {/* Main Container */}
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 relative z-10">
+        
+        {/* Tuya Cloud Quota Exceeded Banner */}
+        {tuyaQuotaBannerVisible && (
+          <div className="mb-6 p-4 rounded-2xl bg-gradient-to-r from-amber-500/15 via-amber-500/10 to-orange-500/15 border border-amber-500/30 text-amber-200 shadow-xl flex flex-col md:flex-row items-start md:items-center justify-between gap-4 animate-in fade-in duration-200">
+            <div className="flex items-start gap-3">
+              <div className="p-2.5 rounded-xl bg-amber-500/20 text-amber-400 shrink-0 mt-0.5">
+                <Zap className="w-5 h-5" />
+              </div>
+              <div className="space-y-1">
+                <div className="font-bold text-sm text-amber-100 flex items-center gap-2">
+                  <span>Quota API Tuya Esaurita (Errore 60001001)</span>
+                  <span className="px-2 py-0.5 rounded-md bg-amber-500/20 text-amber-300 text-[10px] font-mono uppercase">IoT Core Trial</span>
+                </div>
+                <p className="text-xs text-slate-300 leading-relaxed max-w-3xl">
+                  Il periodo di prova gratuito di <strong>IoT Core</strong> su Tuya Developer Cloud è terminato. L'app continua a funzionare perfettamente in <strong>modalità simulata / locale</strong>. Per riattivare il controllo hardware reale in tempo reale:
+                </p>
+              </div>
+            </div>
+            <div className="flex items-center gap-2 shrink-0 self-end md:self-auto">
+              <a
+                href="https://iot.tuya.com"
+                target="_blank"
+                rel="noreferrer"
+                className="px-3.5 py-2 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-xs transition-colors flex items-center gap-1.5 shadow-md"
+              >
+                <span>Estendi Prova su iot.tuya.com</span>
+                <ExternalLink className="w-3.5 h-3.5" />
+              </a>
+              <button
+                onClick={() => setIsTransferModalOpen(true)}
+                className="px-3 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold transition-colors"
+              >
+                Istruzioni
+              </button>
+              <button
+                onClick={() => setTuyaQuotaBannerVisible(false)}
+                className="p-2 rounded-xl hover:bg-slate-800 text-slate-400 hover:text-slate-200 transition-colors"
+                title="Nascondi avviso"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+          </div>
+        )}
         
         {/* TAB 1: Devices Dashboard */}
         {activeTab === 'devices' && (

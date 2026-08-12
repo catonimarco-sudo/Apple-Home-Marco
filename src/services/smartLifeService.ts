@@ -205,6 +205,26 @@ export function saveStoredTuyaCredentials(credentials: TuyaCloudCredentials): vo
   }
 }
 
+function formatTuyaErrorClient(code: string | number, rawMsg: string, host: string): string {
+  const codeStr = String(code || '');
+  if (codeStr === '60001001') {
+    return `Tuya Cloud (${host}): Errore 60001001 - Quota API Tuya o Prova Gratuita Esaurita (controllable device pool quota is insufficient). Per ripristinare il controllo: accedi a iot.tuya.com -> Cloud -> Sviluppo -> Il Mio Servizio -> IoT Core e fai clic su "Estendi Prova Gratuita" (Free Trial Extension).`;
+  }
+  if (codeStr === '28841002' || codeStr === '28841001') {
+    return `Tuya Cloud (${host}): Errore ${codeStr} - Periodo di prova API Tuya scaduto. Accedi a iot.tuya.com -> Cloud -> Sviluppo -> Il Mio Servizio -> IoT Core per rinnovare gratuitamente la licenza.`;
+  }
+  if (codeStr === '2001') {
+    return `Tuya Cloud (${host}): Errore 2001 - Dispositivo Tuya offline o disconnesso dal Wi-Fi. Verifica alimentazione e connessione rete.`;
+  }
+  if (codeStr === '2008' || codeStr === '1106') {
+    return `Tuya Cloud (${host}): Errore ${codeStr} - ID Dispositivo non trovato nell'account Tuya Developer.`;
+  }
+  if (codeStr === '1102') {
+    return `Tuya Cloud (${host}): Errore 1102 - Client ID o Client Secret non validi per l'API Tuya.`;
+  }
+  return `Tuya Cloud (${host}): Errore ${codeStr}: ${rawMsg || 'Errore durante la comunicazione'}`;
+}
+
 /**
  * Direct Client-Side Tuya OpenAPI Call using CryptoJS
  */
@@ -212,9 +232,11 @@ export async function sendTuyaCommandDirectClientSide(
   deviceId: string,
   code: string,
   value: any,
-  creds: TuyaCloudCredentials
+  creds: TuyaCloudCredentials,
+  extraOptions?: { category?: string; isGate?: boolean; dpCode?: string }
 ): Promise<{ success: boolean; message: string }> {
   try {
+    const cleanDeviceId = String(deviceId || '').trim();
     const hostMap: Record<string, string> = {
       eu: 'openapi.tuyaeu.com',
       us: 'openapi.tuyaus.com',
@@ -257,48 +279,76 @@ export async function sendTuyaCommandDirectClientSide(
     }
 
     const accessToken = tokenData.result.access_token;
+    const isGate = extraOptions?.isGate || extraOptions?.category === 'gate' || extraOptions?.category === 'pulsed_switch';
 
-    // 2. Post Commands
-    const t2 = Date.now().toString();
-    const urlPath2 = `/v1.0/devices/${deviceId}/commands`;
-    const bodyObj = { commands: [{ code, value }] };
-    const bodyStr = JSON.stringify(bodyObj);
-    const bodySha256_2 = CryptoJS.SHA256(bodyStr).toString(CryptoJS.enc.Hex);
-    const stringToSign2 = ['POST', bodySha256_2, '', urlPath2].join('\n');
-    const signStr2 = creds.clientAccessId + accessToken + t2 + stringToSign2;
-    const sign2 = CryptoJS.HmacSHA256(signStr2, creds.clientSecret).toString(CryptoJS.enc.Hex).toUpperCase();
+    const candidateCodes: string[] = isGate
+      ? Array.from(new Set([
+          extraOptions?.dpCode,
+          code,
+          'switch_1',
+          'switch',
+          'doorcontrol_1',
+          'trigger',
+          'button_1',
+          'gate_control',
+          'open',
+          'control',
+          'switch_a',
+        ].filter(Boolean) as string[]))
+      : [code];
 
-    const cmdRes = await fetch(`https://${host}${urlPath2}`, {
-      method: 'POST',
-      headers: {
-        client_id: creds.clientAccessId,
-        access_token: accessToken,
-        sign: sign2,
-        t: t2,
-        sign_method: 'HMAC-SHA256',
-        'Content-Type': 'application/json',
-      },
-      body: bodyStr,
-    });
+    let lastCmdData: any = null;
 
-    const cmdText = await cmdRes.text().catch(() => '');
-    let cmdData: any = null;
-    try {
-      cmdData = JSON.parse(cmdText);
-    } catch {
-      return { success: false, message: 'Impossibile contattare il server Tuya' };
-    }
+    for (const codeToTry of candidateCodes) {
+      const t2 = Date.now().toString();
+      const urlPath2 = `/v1.0/devices/${cleanDeviceId}/commands`;
+      const bodyObj = { commands: [{ code: codeToTry, value }] };
+      const bodyStr = JSON.stringify(bodyObj);
+      const bodySha256_2 = CryptoJS.SHA256(bodyStr).toString(CryptoJS.enc.Hex);
+      const stringToSign2 = ['POST', bodySha256_2, '', urlPath2].join('\n');
+      const signStr2 = creds.clientAccessId + accessToken + t2 + stringToSign2;
+      const sign2 = CryptoJS.HmacSHA256(signStr2, creds.clientSecret).toString(CryptoJS.enc.Hex).toUpperCase();
 
-    if (!cmdRes.ok || !cmdData || !cmdData.success) {
-      return {
-        success: false,
-        message: cmdData?.msg ? `Tuya: ${cmdData.msg}` : 'Impossibile contattare il server Tuya',
-      };
+      const cmdRes = await fetch(`https://${host}${urlPath2}`, {
+        method: 'POST',
+        headers: {
+          client_id: creds.clientAccessId,
+          access_token: accessToken,
+          sign: sign2,
+          t: t2,
+          sign_method: 'HMAC-SHA256',
+          'Content-Type': 'application/json',
+        },
+        body: bodyStr,
+      });
+
+      const cmdText = await cmdRes.text().catch(() => '');
+      try {
+        lastCmdData = JSON.parse(cmdText);
+      } catch {
+        lastCmdData = null;
+      }
+
+      if (isGate) {
+        console.log("Tuya Response Gate:", lastCmdData);
+      }
+
+      if (cmdRes.ok && lastCmdData && lastCmdData.success) {
+        return {
+          success: true,
+          message: `Comando '${codeToTry}: ${value}' eseguito su Tuya Cloud`,
+        };
+      }
+
+      // If device offline, quota exceeded, trial expired, break loop
+      if (['2001', '2008', '1106', '1108', '60001001', '28841002', '28841001'].includes(String(lastCmdData?.code))) {
+        break;
+      }
     }
 
     return {
-      success: true,
-      message: `Comando '${code}: ${value}' eseguito su Tuya Cloud`,
+      success: false,
+      message: formatTuyaErrorClient(lastCmdData?.code, lastCmdData?.msg, host),
     };
   } catch (err: any) {
     return {
@@ -315,7 +365,8 @@ export async function sendTuyaCommand(
   deviceId: string,
   code: string,
   value: any,
-  customCredentials?: TuyaCloudCredentials
+  customCredentials?: TuyaCloudCredentials,
+  extraOptions?: { category?: string; isGate?: boolean; dpCode?: string }
 ): Promise<{ success: boolean; message: string; statusCode?: number }> {
   const creds = customCredentials || getStoredTuyaCredentials();
 
@@ -325,6 +376,8 @@ export async function sendTuyaCommand(
       message: 'Credenziali Tuya assenti. Inserisci Client ID e Client Secret nel modale Smart Life per abilitare il controllo reale.',
     };
   }
+
+  const isGate = extraOptions?.isGate || extraOptions?.category === 'gate' || extraOptions?.category === 'pulsed_switch';
 
   // 1. Try backend serverless route /api/tuya-command (or /api/tuya)
   try {
@@ -340,6 +393,9 @@ export async function sendTuyaCommand(
         command: { code, value },
         code,
         value,
+        category: extraOptions?.category,
+        isGate,
+        dpCode: extraOptions?.dpCode || code,
       }),
     });
 
@@ -352,27 +408,30 @@ export async function sendTuyaCommand(
       data = null;
     }
 
-    if (res.ok && data && data.success) {
-      return {
-        success: true,
-        message: data.message || `Comando '${code}: ${value}' eseguito su Tuya Cloud!`,
-      };
+    if (isGate) {
+      console.log("Tuya Response Gate:", data || text);
     }
 
-    // If server returned a valid JSON error message (e.g. invalid credentials)
-    if (data && data.message && !res.ok) {
-      return {
-        success: false,
-        statusCode: res.status,
-        message: data.message,
-      };
+    if (res.ok && data) {
+      if (data.success) {
+        return {
+          success: true,
+          message: data.message || `Comando '${code}: ${value}' eseguito su Tuya Cloud!`,
+        };
+      } else if (data.message) {
+        return {
+          success: false,
+          statusCode: res.status,
+          message: data.message,
+        };
+      }
     }
   } catch (backendErr) {
     console.warn('Backend /api/tuya-command call skipped/failed, trying direct client-side call', backendErr);
   }
 
   // 2. Direct client-side proxy fallback using crypto-js
-  const directResult = await sendTuyaCommandDirectClientSide(deviceId, code, value, creds);
+  const directResult = await sendTuyaCommandDirectClientSide(deviceId, code, value, creds, extraOptions);
   if (directResult.success) {
     return {
       success: true,

@@ -42,9 +42,9 @@ export const WallpaperModal: React.FC<WallpaperModalProps> = ({
   currentWallpaper,
   onSelectWallpaper,
 }) => {
-  if (!isOpen) return null;
-
   const [customInputUrl, setCustomInputUrl] = useState<string>('');
+
+  if (!isOpen) return null;
 
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];

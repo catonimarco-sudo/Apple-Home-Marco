@@ -13,11 +13,11 @@ export const AddDeviceModal: React.FC<AddDeviceModalProps> = ({
   onClose,
   onAddDevice,
 }) => {
-  if (!isOpen) return null;
-
   const [name, setName] = useState<string>('');
   const [category, setCategory] = useState<DeviceCategory>('plug');
   const [room, setRoom] = useState<RoomName>('Salotto');
+
+  if (!isOpen) return null;
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();

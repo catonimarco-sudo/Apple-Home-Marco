@@ -29,8 +29,6 @@ export const SmartLifeTransferModal: React.FC<SmartLifeTransferModalProps> = ({
   onClose,
   onImportDevices,
 }) => {
-  if (!isOpen) return null;
-
   const [step, setStep] = useState<1 | 2 | 3>(1);
 
   // Cloud Credentials State
@@ -41,6 +39,7 @@ export const SmartLifeTransferModal: React.FC<SmartLifeTransferModalProps> = ({
 
   // Load saved credentials if present
   useEffect(() => {
+    if (!isOpen) return;
     const creds = getStoredTuyaCredentials();
     if (creds) {
       if (creds.clientAccessId) setClientAccessId(creds.clientAccessId);
@@ -48,13 +47,15 @@ export const SmartLifeTransferModal: React.FC<SmartLifeTransferModalProps> = ({
       if (creds.userUid) setUserUid(creds.userUid);
       if (creds.region) setRegion(creds.region);
     }
-  }, []);
+  }, [isOpen]);
 
   // Status & Progress
   const [loading, setLoading] = useState<boolean>(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [discoveredDevices, setDiscoveredDevices] = useState<SmartDevice[]>([]);
   const [importSummary, setImportSummary] = useState<ImportResult | null>(null);
+
+  if (!isOpen) return null;
 
   // Single Action: Connect to Tuya Cloud & Download 37 Devices into Firestore
   const handleImportTuyaDevices = async () => {
@@ -135,9 +136,25 @@ export const SmartLifeTransferModal: React.FC<SmartLifeTransferModalProps> = ({
           {errorMessage && (
             <div className="p-4 bg-red-500/10 border border-red-500/20 rounded-xl text-red-300 text-xs flex items-start gap-3">
               <AlertCircle className="w-5 h-5 text-red-400 shrink-0 mt-0.5" />
-              <div>
-                <span className="font-bold block text-red-200">Errore di Sincronizzazione</span>
-                {errorMessage}
+              <div className="space-y-2 flex-1">
+                <span className="font-bold block text-red-200">Errore di Sincronizzazione Tuya</span>
+                <p className="leading-relaxed">{errorMessage}</p>
+
+                {(errorMessage.includes('60001001') || errorMessage.toLowerCase().includes('quota')) && (
+                  <div className="mt-3 p-3.5 bg-amber-500/10 border border-amber-500/20 rounded-xl text-amber-200 text-xs space-y-2">
+                    <span className="font-bold text-amber-300 flex items-center gap-1.5 text-xs">
+                      <Zap className="w-4 h-4 text-amber-400" />
+                      Come risolvere l'Errore 60001001 (Quota API / Prova Gratuita Esaurita):
+                    </span>
+                    <ol className="list-decimal list-inside space-y-1 text-slate-300 text-[11px] leading-relaxed pl-1">
+                      <li>Accedi al portale sviluppatori Tuya <a href="https://iot.tuya.com" target="_blank" rel="noreferrer" className="underline text-amber-300 hover:text-amber-200 font-bold">iot.tuya.com</a>.</li>
+                      <li>Nel menu laterale, naviga in <strong>Cloud</strong> &gt; <strong>Development</strong> &gt; <strong>My Services</strong> (I Miei Servizi).</li>
+                      <li>Trova il servizio <strong>IoT Core</strong> (o <em>Standard Instruction Set</em>).</li>
+                      <li>Fai clic su <strong>Extend Trial</strong> (Estendi Prova Gratuita) o <strong>Renew Subscription</strong> per rinnovare l'abbonamento gratuito per altri 6 mesi.</li>
+                      <li>Riprova l'importazione qui sopra: i comandi e la sincronizzazione torneranno a funzionare immediatamente.</li>
+                    </ol>
+                  </div>
+                )}
               </div>
             </div>
           )}

@@ -38,6 +38,26 @@ async function tuyaGet(urlPath, host, clientAccessId, clientSecret, accessToken)
  * - clientSecret: string (optional if set in env process.env.TUYA_CLIENT_SECRET)
  * - region: 'eu' | 'us' | 'cn' | 'in' (default: 'eu')
  */
+function formatTuyaError(code, rawMsg, host) {
+  const codeStr = String(code || '');
+  if (codeStr === '60001001') {
+    return `Tuya Cloud (${host}): Errore 60001001 - Quota API Tuya o Prova Gratuita Esaurita (controllable device pool quota is insufficient). Per ripristinare il controllo: accedi a iot.tuya.com -> Cloud -> Sviluppo -> Il Mio Servizio -> IoT Core e fai clic su "Estendi Prova Gratuita" (Free Trial Extension).`;
+  }
+  if (codeStr === '28841002' || codeStr === '28841001') {
+    return `Tuya Cloud (${host}): Errore ${codeStr} - Periodo di prova API Tuya scaduto. Accedi a iot.tuya.com -> Cloud -> Sviluppo -> Il Mio Servizio -> IoT Core per rinnovare gratuitamente la licenza.`;
+  }
+  if (codeStr === '2001') {
+    return `Tuya Cloud (${host}): Errore 2001 - Dispositivo Tuya offline o disconnesso dal Wi-Fi. Verifica alimentazione e connessione rete.`;
+  }
+  if (codeStr === '2008' || codeStr === '1106') {
+    return `Tuya Cloud (${host}): Errore ${codeStr} - ID Dispositivo non trovato nell'account Tuya Developer.`;
+  }
+  if (codeStr === '1102') {
+    return `Tuya Cloud (${host}): Errore 1102 - Client ID o Client Secret non validi per l'API Tuya.`;
+  }
+  return `Tuya Cloud (${host}): Errore ${codeStr}: ${rawMsg || 'Errore durante la comunicazione'}`;
+}
+
 export default async function handler(req, res) {
   // CORS setup
   res.setHeader('Access-Control-Allow-Credentials', true);
@@ -64,9 +84,9 @@ export default async function handler(req, res) {
     const clientAccessId = body.clientAccessId || process.env.TUYA_CLIENT_ID;
     const clientSecret = body.clientSecret || process.env.TUYA_CLIENT_SECRET;
     const region = body.region || 'eu';
-    const deviceId = body.deviceId;
+    const cleanDeviceId = String(body.deviceId || '').trim();
 
-    if (!deviceId) {
+    if (!cleanDeviceId) {
       return res.status(400).json({
         success: false,
         message: 'ID Dispositivo (deviceId) mancante nella richiesta.',
@@ -137,10 +157,10 @@ export default async function handler(req, res) {
 
     try {
       const [devInfoRes, devFuncsRes, devStatusRes, devSpecsRes] = await Promise.all([
-        tuyaGet(`/v1.0/devices/${deviceId}`, host, clientAccessId, clientSecret, accessToken),
-        tuyaGet(`/v1.0/devices/${deviceId}/functions`, host, clientAccessId, clientSecret, accessToken),
-        tuyaGet(`/v1.0/devices/${deviceId}/status`, host, clientAccessId, clientSecret, accessToken),
-        tuyaGet(`/v1.0/devices/${deviceId}/specifications`, host, clientAccessId, clientSecret, accessToken),
+        tuyaGet(`/v1.0/devices/${cleanDeviceId}`, host, clientAccessId, clientSecret, accessToken),
+        tuyaGet(`/v1.0/devices/${cleanDeviceId}/functions`, host, clientAccessId, clientSecret, accessToken),
+        tuyaGet(`/v1.0/devices/${cleanDeviceId}/status`, host, clientAccessId, clientSecret, accessToken),
+        tuyaGet(`/v1.0/devices/${cleanDeviceId}/specifications`, host, clientAccessId, clientSecret, accessToken),
       ]);
 
       if (devInfoRes?.success && devInfoRes?.result) {
@@ -181,11 +201,33 @@ export default async function handler(req, res) {
     const primaryCmd = commandList[0];
     let candidateCodes = [];
 
+    const isGate = body.isGate || body.category === 'gate' || body.category === 'pulsed_switch';
+
+    if (body.dpCode) {
+      candidateCodes.push(body.dpCode);
+    }
+
     if (primaryCmd.code) {
       candidateCodes.push(primaryCmd.code);
     }
 
-    if (typeof primaryCmd.value === 'boolean') {
+    if (isGate) {
+      // Dedicated Fallback Multi-Command Array for Gate / Apricancello devices
+      const gateCandidates = [
+        body.dpCode,
+        primaryCmd.code,
+        'switch_1',
+        'switch',
+        'doorcontrol_1',
+        'trigger',
+        'button_1',
+        'gate_control',
+        'open',
+        'control',
+        'switch_a',
+      ].filter(Boolean);
+      candidateCodes = Array.from(new Set([...gateCandidates, ...candidateCodes]));
+    } else if (typeof primaryCmd.value === 'boolean') {
       const dynamicPowerCodes = dynamicCodes.filter((code) => {
         const lower = code.toLowerCase();
         return (
@@ -234,11 +276,8 @@ export default async function handler(req, res) {
     let lastErrorCode = '';
     let successResult = null;
 
-    // Endpoints to attempt (Standard device endpoint & Smart device endpoint)
-    const endpointPaths = [
-      `/v1.0/devices/${deviceId}/commands`,
-      `/v1.0/smart/device/${deviceId}/commands`
-    ];
+    // Standard device command endpoint
+    const urlPath2 = `/v1.0/devices/${cleanDeviceId}/commands`;
 
     for (const codeToTry of candidateCodes) {
       const cmdPayload = [{ code: codeToTry, value: primaryCmd.value }];
@@ -246,57 +285,70 @@ export default async function handler(req, res) {
       const bodyStr = JSON.stringify(bodyObj);
       const bodySha256_2 = crypto.createHash('sha256').update(bodyStr).digest('hex');
 
-      for (const urlPath2 of endpointPaths) {
-        const t2 = Date.now().toString();
-        const stringToSign2 = ['POST', bodySha256_2, '', urlPath2].join('\n');
-        const signStr2 = clientAccessId + accessToken + t2 + stringToSign2;
-        const sign2 = crypto.createHmac('sha256', clientSecret).update(signStr2).digest('hex').toUpperCase();
+      const t2 = Date.now().toString();
+      const stringToSign2 = ['POST', bodySha256_2, '', urlPath2].join('\n');
+      const signStr2 = clientAccessId + accessToken + t2 + stringToSign2;
+      const sign2 = crypto.createHmac('sha256', clientSecret).update(signStr2).digest('hex').toUpperCase();
 
-        try {
-          const commandRes = await fetch(`https://${host}${urlPath2}`, {
-            method: 'POST',
-            headers: {
-              client_id: clientAccessId,
-              access_token: accessToken,
-              sign: sign2,
-              t: t2,
-              sign_method: 'HMAC-SHA256',
-              'Content-Type': 'application/json',
-            },
-            body: bodyStr,
-          });
+      try {
+        const commandRes = await fetch(`https://${host}${urlPath2}`, {
+          method: 'POST',
+          headers: {
+            client_id: clientAccessId,
+            access_token: accessToken,
+            sign: sign2,
+            t: t2,
+            sign_method: 'HMAC-SHA256',
+            'Content-Type': 'application/json',
+          },
+          body: bodyStr,
+        });
 
-          const commandData = await commandRes.json();
+        const commandData = await commandRes.json();
 
-          if (commandData && commandData.success) {
-            successResult = {
-              host,
-              success: true,
-              codeUsed: codeToTry,
-              isSubDevice,
-              gatewayId,
-              dynamicCodesFound: dynamicCodes,
-              result: commandData.result,
-              message: `Comando '${codeToTry}: ${primaryCmd.value}' inviato con successo a Tuya Cloud!`,
-            };
-            break;
-          }
-
-          lastErrorCode = commandData?.code || 'COMMAND_FAILED';
-          lastErrorMsg = commandData?.msg || 'Errore sconosciuto';
-
-          // If device or code is invalid for this endpoint, break endpoint loop and try next candidate code
-          if (lastErrorCode === '2001' || lastErrorCode === '2008' || lastErrorCode === '1106') {
-            break;
-          }
-        } catch (err) {
-          lastErrorMsg = err?.message || String(err);
+        if (commandData && commandData.success) {
+          successResult = {
+            host,
+            success: true,
+            codeUsed: codeToTry,
+            isSubDevice,
+            gatewayId,
+            dynamicCodesFound: dynamicCodes,
+            result: commandData.result,
+            message: `Comando '${codeToTry}: ${primaryCmd.value}' inviato con successo a Tuya Cloud!`,
+          };
+          break;
         }
+
+        if (commandData?.code) {
+          lastErrorCode = String(commandData.code);
+          lastErrorMsg = commandData.msg || 'Errore sconosciuto';
+        } else if (!lastErrorCode) {
+          lastErrorCode = 'COMMAND_FAILED';
+          lastErrorMsg = 'Errore sconosciuto';
+        }
+
+        // If device offline, quota exceeded, trial expired, or device not found, break loop
+        if (['2001', '2008', '1106', '1108', '60001001', '28841002', '28841001'].includes(String(commandData?.code))) {
+          break;
+        }
+      } catch (err) {
+        lastErrorMsg = err?.message || String(err);
       }
 
       if (successResult) {
         break;
       }
+    }
+
+    const formattedErrMsg = formatTuyaError(lastErrorCode, lastErrorMsg, host);
+
+    if (isGate) {
+      console.log("Tuya Response Gate:", successResult || {
+        success: false,
+        code: lastErrorCode,
+        message: formattedErrMsg,
+      });
     }
 
     if (successResult) {
@@ -308,7 +360,7 @@ export default async function handler(req, res) {
       code: lastErrorCode,
       isSubDevice,
       gatewayId,
-      message: `Tuya Cloud (${host}): Errore ${lastErrorCode}: ${lastErrorMsg}`,
+      message: formattedErrMsg,
     });
   } catch (error) {
     return res.status(500).json({

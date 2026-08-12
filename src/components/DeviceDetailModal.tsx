@@ -90,34 +90,33 @@ export const DeviceDetailModal: React.FC<DeviceDetailModalProps> = ({
   onUpdateDevice,
   onDeleteDevice,
 }) => {
-  if (!device) return null;
-
   const [activeTab, setActiveTab] = useState<'control' | 'edit' | 'schedule' | 'info'>('control');
   const [timerMinutes, setTimerMinutes] = useState<number>(30);
   const [timerRunning, setTimerRunning] = useState<boolean>(false);
   
   // Editable Fields
-  const [editName, setEditName] = useState<string>(device.name);
-  const [editRoom, setEditRoom] = useState<string>(device.room);
-  const [editCategory, setEditCategory] = useState<SmartDevice['category']>(device.category);
-  const [editVendor, setEditVendor] = useState<string>(device.vendor);
-  const [editTuyaId, setEditTuyaId] = useState<string>(device.tuyaDeviceId || '');
-  const [editIp, setEditIp] = useState<string>(device.ipAddress || '');
+  const [editName, setEditName] = useState<string>(device?.name || '');
+  const [editRoom, setEditRoom] = useState<string>(device?.room || '');
+  const [editCategory, setEditCategory] = useState<SmartDevice['category']>(device?.category || 'plug');
+  const [editVendor, setEditVendor] = useState<string>(device?.vendor || '');
+  const [editTuyaId, setEditTuyaId] = useState<string>(device?.tuyaDeviceId || '');
+  const [editIp, setEditIp] = useState<string>(device?.ipAddress || '');
   const [editChannel, setEditChannel] = useState<string>(
-    device.channel || device.dpCode || (device.category === 'gate' || device.category === 'pulsed_switch' ? 'switch_1' : 'switch_1')
+    device?.channel || device?.dpCode || (device?.category === 'gate' || device?.category === 'pulsed_switch' ? 'switch_1' : 'switch_1')
   );
-  const [editCustomIcon, setEditCustomIcon] = useState<string>(device.customIcon || '');
-  const [editCustomImageUrl, setEditCustomImageUrl] = useState<string>(device.customImageUrl || '');
+  const [editDpCodeCustom, setEditDpCodeCustom] = useState<string>(device?.dpCode || '');
+  const [editCustomIcon, setEditCustomIcon] = useState<string>(device?.customIcon || '');
+  const [editCustomImageUrl, setEditCustomImageUrl] = useState<string>(device?.customImageUrl || '');
   const [isSaved, setIsSaved] = useState<boolean>(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState<boolean>(false);
 
   // Tuya WebRTC Credentials & Live Streaming State
   const [tuyaWebRTCConfig, setTuyaWebRTCConfig] = useState<TuyaCameraConfig>(() =>
-    getTuyaConfig(device.tuyaDeviceId || device.id)
+    getTuyaConfig(device?.tuyaDeviceId || device?.id || '')
   );
   const [tuyaSavedSuccess, setTuyaSavedSuccess] = useState<boolean>(false);
   const [activeStreamUrl, setActiveStreamUrl] = useState<string>(() => {
-    const cfg = getTuyaConfig(device.tuyaDeviceId || device.id);
+    const cfg = getTuyaConfig(device?.tuyaDeviceId || device?.id || '');
     return cfg.streamUrl || '';
   });
   const [isFetchingStream, setIsFetchingStream] = useState<boolean>(false);
@@ -140,6 +139,7 @@ export const DeviceDetailModal: React.FC<DeviceDetailModalProps> = ({
       setEditTuyaId(device.tuyaDeviceId || '');
       setEditIp(device.ipAddress || '');
       setEditChannel(device.channel || device.dpCode || 'switch_1');
+      setEditDpCodeCustom(device.dpCode || '');
       setEditCustomIcon(device.customIcon || '');
       setEditCustomImageUrl(device.customImageUrl || '');
       setShowDeleteConfirm(false);
@@ -155,6 +155,8 @@ export const DeviceDetailModal: React.FC<DeviceDetailModalProps> = ({
       }
     }
   }, [device]);
+
+  if (!device) return null;
 
   const handleFetchStreamFromBackend = async (configToUse?: TuyaCameraConfig) => {
     const cfg = configToUse || tuyaWebRTCConfig;
@@ -206,6 +208,8 @@ export const DeviceDetailModal: React.FC<DeviceDetailModalProps> = ({
 
   const handleSaveFullEdit = () => {
     const finalChannel = editChannel || 'switch_1';
+    const customDpTrimmed = editDpCodeCustom.trim();
+    const finalDpCode = customDpTrimmed || finalChannel;
     const updated: SmartDevice = {
       ...device,
       name: editName,
@@ -217,7 +221,7 @@ export const DeviceDetailModal: React.FC<DeviceDetailModalProps> = ({
       customIcon: editCustomIcon || '',
       customImageUrl: editCustomImageUrl || '',
       channel: finalChannel,
-      dpCode: finalChannel,
+      dpCode: finalDpCode,
     };
     onUpdateDevice(updated);
     setIsSaved(true);
@@ -801,6 +805,22 @@ export const DeviceDetailModal: React.FC<DeviceDetailModalProps> = ({
                     <option value="button_1">Pulsante 1 (button_1)</option>
                     <option value="button">Pulsante (button)</option>
                   </select>
+                </div>
+
+                <div>
+                  <label className="text-slate-300 font-bold block mb-1">
+                    Codice Comando Tuya (DP Code Custom)
+                  </label>
+                  <input
+                    type="text"
+                    value={editDpCodeCustom}
+                    onChange={(e) => setEditDpCodeCustom(e.target.value)}
+                    placeholder="es. switch, doorcontrol_1, trigger, button_1"
+                    className="w-full bg-[#121214] border border-white/10 px-3 py-2 rounded-xl text-white font-mono focus:border-emerald-500 focus:outline-none placeholder-slate-600 text-sm"
+                  />
+                  <p className="text-[11px] text-slate-400 mt-1">
+                    Opzionale: sovrascrive il canale standard se compilato.
+                  </p>
                 </div>
 
                 {/* Custom Photo / Image Upload Section */}
