@@ -103,7 +103,9 @@ export const DeviceDetailModal: React.FC<DeviceDetailModalProps> = ({
   const [editVendor, setEditVendor] = useState<string>(device.vendor);
   const [editTuyaId, setEditTuyaId] = useState<string>(device.tuyaDeviceId || '');
   const [editIp, setEditIp] = useState<string>(device.ipAddress || '');
-  const [editChannel, setEditChannel] = useState<string>(device.channel || device.dpCode || '');
+  const [editChannel, setEditChannel] = useState<string>(
+    device.channel || device.dpCode || (device.category === 'gate' || device.category === 'pulsed_switch' ? 'switch_1' : 'switch_1')
+  );
   const [editCustomIcon, setEditCustomIcon] = useState<string>(device.customIcon || '');
   const [editCustomImageUrl, setEditCustomImageUrl] = useState<string>(device.customImageUrl || '');
   const [isSaved, setIsSaved] = useState<boolean>(false);
@@ -137,7 +139,7 @@ export const DeviceDetailModal: React.FC<DeviceDetailModalProps> = ({
       setEditVendor(device.vendor);
       setEditTuyaId(device.tuyaDeviceId || '');
       setEditIp(device.ipAddress || '');
-      setEditChannel(device.channel || device.dpCode || '');
+      setEditChannel(device.channel || device.dpCode || 'switch_1');
       setEditCustomIcon(device.customIcon || '');
       setEditCustomImageUrl(device.customImageUrl || '');
       setShowDeleteConfirm(false);
@@ -203,6 +205,7 @@ export const DeviceDetailModal: React.FC<DeviceDetailModalProps> = ({
   };
 
   const handleSaveFullEdit = () => {
+    const finalChannel = editChannel || 'switch_1';
     const updated: SmartDevice = {
       ...device,
       name: editName,
@@ -213,8 +216,8 @@ export const DeviceDetailModal: React.FC<DeviceDetailModalProps> = ({
       ipAddress: editIp,
       customIcon: editCustomIcon || '',
       customImageUrl: editCustomImageUrl || '',
-      channel: editChannel ? editChannel : null,
-      dpCode: editChannel ? editChannel : null,
+      channel: finalChannel,
+      dpCode: finalChannel,
     };
     onUpdateDevice(updated);
     setIsSaved(true);
@@ -784,19 +787,19 @@ export const DeviceDetailModal: React.FC<DeviceDetailModalProps> = ({
                 </div>
 
                 <div>
-                  <label className="text-slate-300 font-bold block mb-1">Canale / Switch ID</label>
+                  <label className="text-slate-300 font-bold block mb-1">Canale / Switch ID (DP Code Tuya)</label>
                   <select
-                    value={editChannel}
+                    value={editChannel || 'switch_1'}
                     onChange={(e) => setEditChannel(e.target.value)}
                     className="w-full bg-[#121214] border border-white/10 px-3 py-2 rounded-xl text-white font-medium focus:border-emerald-500 focus:outline-none"
                   >
-                    <option value="">Predefinito / Singolo</option>
-                    <option value="switch_1">Canale 1 (switch_1)</option>
+                    <option value="switch_1">Canale 1 / Singolo (switch_1)</option>
+                    <option value="switch">Generico / Singolo (switch)</option>
                     <option value="switch_2">Canale 2 (switch_2)</option>
                     <option value="switch_3">Canale 3 (switch_3)</option>
                     <option value="switch_4">Canale 4 (switch_4)</option>
                     <option value="button_1">Pulsante 1 (button_1)</option>
-                    <option value="switch">Generico (switch)</option>
+                    <option value="button">Pulsante (button)</option>
                   </select>
                 </div>
 
