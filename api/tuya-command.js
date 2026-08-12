@@ -41,7 +41,7 @@ async function tuyaGet(urlPath, host, clientAccessId, clientSecret, accessToken)
 function formatTuyaError(code, rawMsg, host) {
   const codeStr = String(code || '');
   if (codeStr === '60001001') {
-    return `Tuya Cloud (${host}): Errore 60001001 - Quota API Tuya o Prova Gratuita Esaurita (controllable device pool quota is insufficient). Per ripristinare il controllo: accedi a iot.tuya.com -> Cloud -> Sviluppo -> Il Mio Servizio -> IoT Core e fai clic su "Estendi Prova Gratuita" (Free Trial Extension).`;
+    return `Tuya Cloud (${host}): Errore 60001001 - Limite Dispositivi Controllabili o Rate Limit Superato (controllable device pool quota is insufficient). Nei progetti Tuya Cloud (anche rinnovati) esiste un limite di max 10 dispositivi controllabili simultaneamente nel 'Controllable Device Pool'. Se l'account Smart Life ha più di 10 dispositivi collegati al progetto Tuya su iot.tuya.com (Cloud -> My Project -> Devices), rimuovere quelli in eccesso.`;
   }
   if (codeStr === '28841002' || codeStr === '28841001') {
     return `Tuya Cloud (${host}): Errore ${codeStr} - Periodo di prova API Tuya scaduto. Accedi a iot.tuya.com -> Cloud -> Sviluppo -> Il Mio Servizio -> IoT Core per rinnovare gratuitamente la licenza.`;
@@ -150,54 +150,7 @@ export default async function handler(req, res) {
 
     const accessToken = tokenData.result.access_token;
 
-    // 2. Fetch Device Specs, Functions, Status & Metadata dynamically (for Wi-Fi & Zigbee/Hub sub-devices)
-    let dynamicCodes = [];
-    let isSubDevice = false;
-    let gatewayId = null;
-
-    try {
-      const [devInfoRes, devFuncsRes, devStatusRes, devSpecsRes] = await Promise.all([
-        tuyaGet(`/v1.0/devices/${cleanDeviceId}`, host, clientAccessId, clientSecret, accessToken),
-        tuyaGet(`/v1.0/devices/${cleanDeviceId}/functions`, host, clientAccessId, clientSecret, accessToken),
-        tuyaGet(`/v1.0/devices/${cleanDeviceId}/status`, host, clientAccessId, clientSecret, accessToken),
-        tuyaGet(`/v1.0/devices/${cleanDeviceId}/specifications`, host, clientAccessId, clientSecret, accessToken),
-      ]);
-
-      if (devInfoRes?.success && devInfoRes?.result) {
-        if (devInfoRes.result.sub || devInfoRes.result.gateway_id) {
-          isSubDevice = true;
-          gatewayId = devInfoRes.result.gateway_id || null;
-        }
-      }
-
-      if (devFuncsRes?.success && devFuncsRes?.result?.functions) {
-        for (const fn of devFuncsRes.result.functions) {
-          if (fn.code && !dynamicCodes.includes(fn.code)) {
-            dynamicCodes.push(fn.code);
-          }
-        }
-      }
-
-      if (devSpecsRes?.success && devSpecsRes?.result?.functions) {
-        for (const fn of devSpecsRes.result.functions) {
-          if (fn.code && !dynamicCodes.includes(fn.code)) {
-            dynamicCodes.push(fn.code);
-          }
-        }
-      }
-
-      if (devStatusRes?.success && Array.isArray(devStatusRes.result)) {
-        for (const st of devStatusRes.result) {
-          if (st.code && !dynamicCodes.includes(st.code)) {
-            dynamicCodes.push(st.code);
-          }
-        }
-      }
-    } catch (err) {
-      console.warn('Dynamic Tuya DP resolution warning:', err?.message || err);
-    }
-
-    // 3. Assemble candidate DP codes with dynamic discovery priority
+    // Assemble primary candidate DP codes directly (fast-path without heavy GET requests)
     const primaryCmd = commandList[0];
     let candidateCodes = [];
 
@@ -206,79 +159,28 @@ export default async function handler(req, res) {
     if (body.dpCode) {
       candidateCodes.push(body.dpCode);
     }
-
     if (primaryCmd.code) {
       candidateCodes.push(primaryCmd.code);
     }
 
     if (isGate) {
-      // Dedicated Fallback Multi-Command Array for Gate / Apricancello devices
-      const gateCandidates = [
-        body.dpCode,
-        primaryCmd.code,
-        'switch_1',
-        'switch',
-        'doorcontrol_1',
-        'trigger',
-        'button_1',
-        'gate_control',
-        'open',
-        'control',
-        'switch_a',
-      ].filter(Boolean);
-      candidateCodes = Array.from(new Set([...gateCandidates, ...candidateCodes]));
+      candidateCodes.push('switch_1', 'switch', 'doorcontrol_1', 'gate_control');
     } else if (typeof primaryCmd.value === 'boolean') {
-      const dynamicPowerCodes = dynamicCodes.filter((code) => {
-        const lower = code.toLowerCase();
-        return (
-          lower.includes('switch') ||
-          lower.includes('power') ||
-          lower.includes('led') ||
-          lower.includes('on_off') ||
-          lower.includes('socket') ||
-          lower.includes('relay') ||
-          lower.includes('state')
-        );
-      });
-      candidateCodes.push(...dynamicPowerCodes);
-
-      const powerCandidates = [
-        'switch_1',
-        'switch',
-        'switch_led',
-        'led_switch',
-        'switch_led_1',
-        'switch_a',
-        'switch_b',
-        'switch_c',
-        'switch_1_1',
-        'switch_pb_1',
-        'switch_main',
-        'power',
-        'on_off',
-      ];
-      candidateCodes.push(...powerCandidates);
-    } else if (typeof primaryCmd.code === 'string' && (primaryCmd.code.includes('bright') || primaryCmd.code.includes('val'))) {
-      const dynamicBrightCodes = dynamicCodes.filter((code) => {
-        const lower = code.toLowerCase();
-        return lower.includes('bright') || lower.includes('value') || lower.includes('level') || lower.includes('dim');
-      });
-      candidateCodes.push(...dynamicBrightCodes);
-
-      const brightCandidates = ['bright_value', 'bright_value_v2', 'brightness', 'value'];
-      candidateCodes.push(...brightCandidates);
+      candidateCodes.push('switch_1', 'switch', 'switch_led', 'power', 'on_off');
     }
 
-    candidateCodes.push(...dynamicCodes);
     candidateCodes = Array.from(new Set(candidateCodes)).filter(Boolean);
 
+    let dynamicCodes = [];
+    let isSubDevice = false;
+    let gatewayId = null;
     let lastErrorMsg = '';
     let lastErrorCode = '';
     let successResult = null;
 
-    // Standard device command endpoint
     const urlPath2 = `/v1.0/devices/${cleanDeviceId}/commands`;
 
+    // Fast-path execution loop
     for (const codeToTry of candidateCodes) {
       const cmdPayload = [{ code: codeToTry, value: primaryCmd.value }];
       const bodyObj = { commands: cmdPayload };
@@ -313,7 +215,6 @@ export default async function handler(req, res) {
             codeUsed: codeToTry,
             isSubDevice,
             gatewayId,
-            dynamicCodesFound: dynamicCodes,
             result: commandData.result,
             message: `Comando '${codeToTry}: ${primaryCmd.value}' inviato con successo a Tuya Cloud!`,
           };
@@ -328,16 +229,12 @@ export default async function handler(req, res) {
           lastErrorMsg = 'Errore sconosciuto';
         }
 
-        // If device offline, quota exceeded, trial expired, or device not found, break loop
+        // Account-level, Quota-level, or Offline errors: stop retrying immediately to preserve API quota
         if (['2001', '2008', '1106', '1108', '60001001', '28841002', '28841001'].includes(String(commandData?.code))) {
           break;
         }
       } catch (err) {
         lastErrorMsg = err?.message || String(err);
-      }
-
-      if (successResult) {
-        break;
       }
     }
 

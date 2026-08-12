@@ -363,12 +363,33 @@ export async function sendTuyaCommandDirectClientSide(
  */
 export async function sendTuyaCommand(
   deviceId: string,
-  code: string,
-  value: any,
+  code: string | Array<{ code: string; value: any }>,
+  value?: any,
   customCredentials?: TuyaCloudCredentials,
   extraOptions?: { category?: string; isGate?: boolean; dpCode?: string }
 ): Promise<{ success: boolean; message: string; statusCode?: number }> {
-  const creds = customCredentials || getStoredTuyaCredentials();
+  let realCode = 'switch_1';
+  let realValue: any = true;
+  let creds = customCredentials;
+  let options = extraOptions;
+
+  if (Array.isArray(code) && code.length > 0) {
+    realCode = code[0].code || 'switch_1';
+    realValue = code[0].value;
+    if (value && typeof value === 'object' && 'clientAccessId' in value) {
+      creds = value as TuyaCloudCredentials;
+      if (customCredentials && typeof customCredentials === 'object') {
+        options = customCredentials as any;
+      }
+    } else if (value && typeof value === 'object' && ('category' in value || 'isGate' in value || 'dpCode' in value)) {
+      options = value as any;
+    }
+  } else {
+    realCode = typeof code === 'string' ? code : 'switch_1';
+    realValue = value;
+  }
+
+  creds = creds || getStoredTuyaCredentials();
 
   if (!creds || !creds.clientAccessId || !creds.clientSecret) {
     return {
@@ -377,9 +398,9 @@ export async function sendTuyaCommand(
     };
   }
 
-  const isGate = extraOptions?.isGate || extraOptions?.category === 'gate' || extraOptions?.category === 'pulsed_switch';
+  const isGate = options?.isGate || options?.category === 'gate' || options?.category === 'pulsed_switch';
 
-  // 1. Try backend serverless route /api/tuya-command (or /api/tuya)
+  // 1. Try backend serverless route /api/tuya-command
   try {
     const res = await fetch('/api/tuya-command', {
       method: 'POST',
@@ -390,12 +411,12 @@ export async function sendTuyaCommand(
         clientSecret: creds.clientSecret,
         region: creds.region || 'eu',
         deviceId,
-        command: { code, value },
-        code,
-        value,
-        category: extraOptions?.category,
+        command: { code: realCode, value: realValue },
+        code: realCode,
+        value: realValue,
+        category: options?.category,
         isGate,
-        dpCode: extraOptions?.dpCode || code,
+        dpCode: options?.dpCode || realCode,
       }),
     });
 
@@ -412,11 +433,11 @@ export async function sendTuyaCommand(
       console.log("Tuya Response Gate:", data || text);
     }
 
-    if (res.ok && data) {
+    if (data) {
       if (data.success) {
         return {
           success: true,
-          message: data.message || `Comando '${code}: ${value}' eseguito su Tuya Cloud!`,
+          message: data.message || `Comando '${realCode}: ${realValue}' eseguito su Tuya Cloud!`,
         };
       } else if (data.message) {
         return {
@@ -431,7 +452,7 @@ export async function sendTuyaCommand(
   }
 
   // 2. Direct client-side proxy fallback using crypto-js
-  const directResult = await sendTuyaCommandDirectClientSide(deviceId, code, value, creds, extraOptions);
+  const directResult = await sendTuyaCommandDirectClientSide(deviceId, realCode, realValue, creds, options);
   if (directResult.success) {
     return {
       success: true,

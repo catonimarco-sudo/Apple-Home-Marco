@@ -121,70 +121,96 @@ export default function App() {
     const isGateOrImpulse = d.category === 'gate' || d.category === 'pulsed_switch' || d.customIcon === 'gate' || d.customIcon === 'pulsed_switch';
 
     if (isGateOrImpulse) {
-      let cmdCode = 'switch_1';
+      let dpCode = 'switch_1';
       if (d.dpCode && d.dpCode.trim()) {
-        cmdCode = d.dpCode.trim();
+        dpCode = d.dpCode.trim();
       } else if (d.channel && d.channel !== '1' && d.channel !== 'default') {
-        cmdCode = d.channel;
+        dpCode = d.channel;
       }
 
-      // 1. Immediate UI update to ON state ("In apertura...")
-      const activeDev: SmartDevice = {
+      const tuyaId = d.tuyaDeviceId || d.id;
+
+      // Fallback al Toggle Inverso: Se il pulsante risulta già nello stato true, invia sequenzialmente false e poi true
+      const isCurrentlyTrue = d.state.switch?.power ?? d.state.switch?.gangs?.[0] ?? (d.state as any)?.power ?? false;
+      const step1Value = !isCurrentlyTrue;
+      const step2Value = isCurrentlyTrue;
+
+      // Step 1: Pressione
+      const step1Dev: SmartDevice = {
         ...d,
         state: {
           ...d.state,
           switch: {
-            ...(d.state.switch || { gangs: [true] }),
-            power: true,
-            gangs: [true],
+            ...(d.state.switch || { gangs: [step1Value] }),
+            power: step1Value,
+            gangs: [step1Value],
           },
-          ...((d.state as any)?.power !== undefined ? { power: true } : {}),
+          ...((d.state as any)?.power !== undefined ? { power: step1Value } : {}),
         },
       };
 
-      setDevices((prev) => prev.map((item) => (item.id === device.id ? activeDev : item)));
-      showToast(`Inviato impulso a "${device.name}" (In apertura...)`);
+      setDevices((prev) => prev.map((item) => (item.id === device.id ? step1Dev : item)));
+      showToast(`Inviato impulso a "${device.name}" (${step1Value ? 'Pressione ON...' : 'Pressione Inversa OFF...'})`);
 
-      const tuyaId = d.tuyaDeviceId || d.id;
       if (tuyaId) {
-        sendTuyaCommand(tuyaId, cmdCode, true, undefined, {
+        sendTuyaCommand(tuyaId, [{ code: dpCode || 'switch_1', value: step1Value }], undefined, undefined, {
           category: d.category,
           isGate: true,
-          dpCode: cmdCode,
+          dpCode,
         })
-          .then((res) => console.log('Tuya Response Gate:', res))
-          .catch((err) => console.warn('Tuya gate ON command notice:', err));
+          .then((res) => {
+            console.log('Tuya Response Gate Step 1:', res);
+            if (!res.success && res.message && (res.message.includes('60001001') || res.message.toLowerCase().includes('quota') || res.message.includes('28841002'))) {
+              setTuyaQuotaBannerVisible(true);
+            }
+          })
+          .catch((err) => console.warn('Tuya gate Step 1 command notice:', err));
       }
 
       try {
-        await saveDeviceToDb(activeDev);
+        await saveDeviceToDb(step1Dev);
       } catch (dbErr) {
         console.warn('Firestore sync warning:', dbErr);
       }
 
-      // 2. Automatic reset back to false after 1 second (1000 ms) in UI local state
+      // Step 2: Rilascio dopo 500ms
       setTimeout(async () => {
-        const resetDev: SmartDevice = {
+        if (tuyaId) {
+          sendTuyaCommand(tuyaId, [{ code: dpCode || 'switch_1', value: step2Value }], undefined, undefined, {
+            category: d.category,
+            isGate: true,
+            dpCode,
+          })
+            .then((res) => {
+              console.log('Tuya Response Gate Step 2:', res);
+              if (!res.success && res.message && (res.message.includes('60001001') || res.message.toLowerCase().includes('quota') || res.message.includes('28841002'))) {
+                setTuyaQuotaBannerVisible(true);
+              }
+            })
+            .catch((err) => console.warn('Tuya gate Step 2 command notice:', err));
+        }
+
+        const step2Dev: SmartDevice = {
           ...d,
           state: {
             ...d.state,
             switch: {
-              ...(d.state.switch || { gangs: [false] }),
-              power: false,
-              gangs: [false],
+              ...(d.state.switch || { gangs: [step2Value] }),
+              power: step2Value,
+              gangs: [step2Value],
             },
-            ...((d.state as any)?.power !== undefined ? { power: false } : {}),
+            ...((d.state as any)?.power !== undefined ? { power: step2Value } : {}),
           },
         };
 
-        setDevices((prev) => prev.map((item) => (item.id === device.id ? resetDev : item)));
+        setDevices((prev) => prev.map((item) => (item.id === device.id ? step2Dev : item)));
 
         try {
-          await saveDeviceToDb(resetDev);
+          await saveDeviceToDb(step2Dev);
         } catch (dbErr) {
           console.warn('Firestore sync warning:', dbErr);
         }
-      }, 1000);
+      }, 500);
 
       return;
     }
@@ -305,10 +331,8 @@ export default function App() {
           console.warn('Tuya Cloud command notice:', res.message);
           if (res.message && (res.message.includes('60001001') || res.message.toLowerCase().includes('quota') || res.message.includes('28841002'))) {
             setTuyaQuotaBannerVisible(true);
-            showToast(`⚠️ Quota Tuya Esaurita (Errore 60001001): Estendi la prova gratuita di "IoT Core" su iot.tuya.com`);
-          } else {
-            showToast(`${device.name} ${commandValue ? 'Acceso' : 'Spento'} (Stato Locale)`);
           }
+          showToast(`${device.name} ${commandValue ? 'Acceso' : 'Spento'}`);
         }
       } catch (err: any) {
         console.warn('Tuya network warning:', err);
