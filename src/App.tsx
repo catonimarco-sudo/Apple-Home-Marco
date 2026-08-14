@@ -274,10 +274,10 @@ export default function App() {
     let commandCode = 'switch_1';
     let commandValue: boolean = true;
 
-    if (d.category === 'plug') {
+    if (d.category === 'plug' || (d as any).tuyaCategory === 'cz' || (d as any).tuyaCategory === 'socket' || (d.name || '').toLowerCase().includes('presa')) {
       const currentPower = d.state.plug?.power ?? false;
       const nextPower = !currentPower;
-      commandCode = 'switch_1';
+      commandCode = 'switch_go';
       commandValue = nextPower;
       newDev.state.plug = {
         totalKwh: 12.5,

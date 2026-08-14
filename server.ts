@@ -194,8 +194,15 @@ async function sendTuyaDeviceCommand(
   const primaryCmd = commands[0];
   let candidateCodes: string[] = [primaryCmd.code];
 
+  const isPlug =
+    cleanDeviceId.toLowerCase().includes('presa') ||
+    cleanDeviceId.toLowerCase().includes('plug') ||
+    primaryCmd.code === 'switch_go';
+
   if (cleanDeviceId.toLowerCase().includes('cancelletto') || primaryCmd.code === 'switch') {
     candidateCodes = ['switch', 'switch_led', 'switch_1'];
+  } else if (isPlug || primaryCmd.code === 'switch_go') {
+    candidateCodes = ['switch_go', 'switch_1', 'switch', 'switch_led', 'power'];
   } else if (typeof primaryCmd.value === "boolean") {
     // Standard power toggle candidates for Tuya devices
     const powerCandidates = ["switch_1", "switch", "switch_led", "led_switch", "switch_led_1", "switch_a"];

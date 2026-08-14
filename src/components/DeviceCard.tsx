@@ -494,15 +494,28 @@ export const DeviceCard: React.FC<DeviceCardProps> = ({
     return <CameraCard device={device} onClickDetail={onClickDetail} />;
   }
 
+  const isGateOrImpulse =
+    category === 'gate' ||
+    category === 'pulsed_switch' ||
+    device.customIcon === 'gate' ||
+    device.customIcon === 'pulsed_switch' ||
+    name.toLowerCase().includes('cancelletto') ||
+    name.toLowerCase().includes('cancello') ||
+    name.toLowerCase().includes('varco') ||
+    name.toLowerCase().includes('portoncino');
+
   // Determine main power status correctly per device category
   const isPowerOn = (() => {
+    if (isGateOrImpulse) {
+      return Boolean(state.switch?.power || state.switch?.gangs?.[0] || (state as any)?.power);
+    }
     switch (category) {
       case 'light':
         return Boolean(state.light?.power);
       case 'plug':
         return Boolean(state.plug?.power);
       case 'switch':
-        return Boolean(state.switch?.power);
+        return Boolean(state.switch?.power || state.switch?.gangs?.[0]);
       case 'gate':
       case 'pulsed_switch':
         return Boolean(state.switch?.power || (state as any)?.power);
@@ -525,6 +538,9 @@ export const DeviceCard: React.FC<DeviceCardProps> = ({
   const getStatusText = () => {
     if (!isPowerOn) {
       return 'OFF';
+    }
+    if (isGateOrImpulse) {
+      return 'IMPULSO ON';
     }
     if (category === 'thermostat' && state.thermostat?.targetTemp) {
       return `${state.thermostat.targetTemp}°C`;
@@ -602,7 +618,7 @@ export const DeviceCard: React.FC<DeviceCardProps> = ({
         </div>
       );
     }
-    if (iconType === 'gate' || iconType === 'pulsed_switch' || category === 'gate' || category === 'pulsed_switch') {
+    if (iconType === 'gate' || iconType === 'pulsed_switch' || category === 'gate' || category === 'pulsed_switch' || isGateOrImpulse) {
       return (
         <div className={badgeClasses}>
           <Key className={`w-5 h-5 ${isPowerOn ? 'text-slate-900 font-bold' : 'text-amber-400 font-bold'}`} />

@@ -162,10 +162,32 @@ export default async function handler(req, res) {
       body.dpCode === 'switch' ||
       primaryCmd.code === 'switch';
 
+    const isPlug =
+      body.isPlug ||
+      body.category === 'plug' ||
+      body.category === 'cz' ||
+      body.category === 'socket' ||
+      body.tuyaCategory === 'cz' ||
+      deviceNameStr.includes('presa') ||
+      deviceNameStr.includes('plug') ||
+      deviceNameStr.includes('socket') ||
+      primaryCmd.code === 'switch_go' ||
+      body.dpCode === 'switch_go';
+
     if (isCancelletto) {
       // Per il solo "Cancelletto" invia primariamente il codice "switch"
       // Payload: { "commands": [{ "code": "switch", "value": ... }] } con fallback "switch_led", "switch_1"
       candidateCodes.push('switch', 'switch_led', 'switch_1');
+    } else if (isPlug) {
+      // Per le Prese Wi-Fi (categoria "cz" / Socket / Presa con monitoraggio consumi come "Presa Marco")
+      // Il codice standard Tuya è "switch_go". Fallback a "switch_1", "switch", "switch_led", "power"
+      if (body.dpCode && body.dpCode.trim()) {
+        candidateCodes.push(body.dpCode.trim());
+      }
+      if (primaryCmd.code && primaryCmd.code !== 'switch_1') {
+        candidateCodes.push(primaryCmd.code);
+      }
+      candidateCodes.push('switch_go', 'switch_1', 'switch', 'switch_led', 'power');
     } else {
       // MANTIENI INVARIATO il codice e la logica per tutti gli altri dispositivi (incluso il "Cancellone", che deve continuare a inviare "code": "switch_1")
       if (body.dpCode) {

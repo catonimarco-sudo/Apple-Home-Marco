@@ -287,8 +287,29 @@ export async function sendTuyaCommandDirectClientSide(
       code === 'switch' ||
       extraOptions?.dpCode === 'switch';
 
+    const isPlug =
+      extraOptions?.category === 'plug' ||
+      extraOptions?.category === 'cz' ||
+      extraOptions?.category === 'socket' ||
+      (extraOptions as any)?.tuyaCategory === 'cz' ||
+      deviceNameStr.includes('presa') ||
+      deviceNameStr.includes('plug') ||
+      deviceNameStr.includes('socket') ||
+      code === 'switch_go' ||
+      extraOptions?.dpCode === 'switch_go';
+
     const candidateCodes: string[] = isCancelletto
       ? ['switch', 'switch_led', 'switch_1']
+      : isPlug
+      ? Array.from(new Set([
+          extraOptions?.dpCode,
+          code,
+          'switch_go',
+          'switch_1',
+          'switch',
+          'switch_led',
+          'power',
+        ].filter(Boolean) as string[]))
       : isGate
       ? Array.from(new Set([
           extraOptions?.dpCode,
@@ -414,9 +435,22 @@ export async function sendTuyaCommand(
     realCode === 'switch' ||
     options?.dpCode === 'switch';
 
+  const isPlug =
+    options?.category === 'plug' ||
+    options?.category === 'cz' ||
+    options?.category === 'socket' ||
+    (options as any)?.tuyaCategory === 'cz' ||
+    deviceNameStr.includes('presa') ||
+    deviceNameStr.includes('plug') ||
+    deviceNameStr.includes('socket') ||
+    realCode === 'switch_go' ||
+    options?.dpCode === 'switch_go';
+
   // Per il Cancelletto usa primariamente 'switch' se non diversamente specificato
   if (isCancelletto && realCode === 'switch_1' && !options?.dpCode) {
     realCode = 'switch';
+  } else if (isPlug && (realCode === 'switch_1' || realCode === 'switch') && !options?.dpCode) {
+    realCode = 'switch_go';
   }
 
   // 1. Try backend serverless route /api/tuya-command
