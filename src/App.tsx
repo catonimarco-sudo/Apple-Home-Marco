@@ -157,10 +157,22 @@ export default function App() {
     const d = device;
     const newDev = { ...d, state: { ...d.state } };
 
-    const isGateOrImpulse = d.category === 'gate' || d.category === 'pulsed_switch' || d.customIcon === 'gate' || d.customIcon === 'pulsed_switch';
+    const isCancelletto =
+      (device.name || '').toLowerCase().includes('cancelletto') ||
+      (device.id || '').toLowerCase().includes('cancelletto') ||
+      (device.tuyaDeviceId || '').toLowerCase().includes('cancelletto');
+
+    const isGateOrImpulse =
+      isCancelletto ||
+      d.category === 'gate' ||
+      d.category === 'pulsed_switch' ||
+      d.customIcon === 'gate' ||
+      d.customIcon === 'pulsed_switch' ||
+      (device.name || '').toLowerCase().includes('cancello') ||
+      (device.name || '').toLowerCase().includes('varco') ||
+      (device.name || '').toLowerCase().includes('portoncino');
 
     if (isGateOrImpulse) {
-      const isCancelletto = (device.name || '').toLowerCase().includes('cancelletto');
       let dpCode = isCancelletto ? 'switch' : 'switch_1';
       if (d.dpCode && d.dpCode.trim()) {
         dpCode = d.dpCode.trim();
@@ -170,37 +182,35 @@ export default function App() {
 
       const tuyaId = d.tuyaDeviceId || d.id;
 
-      // Fallback al Toggle Inverso: Se il pulsante risulta già nello stato true, invia sequenzialmente false e poi true
-      const isCurrentlyTrue = d.state.switch?.power ?? d.state.switch?.gangs?.[0] ?? (d.state as any)?.power ?? false;
-      const step1Value = !isCurrentlyTrue;
-      const step2Value = isCurrentlyTrue;
-
-      // Step 1: Pressione
+      // 1. Invia subito il comando di accensione ("value": true / "switch": true)
       const step1Dev: SmartDevice = {
         ...d,
         state: {
           ...d.state,
           switch: {
-            ...(d.state.switch || { gangs: [step1Value] }),
-            power: step1Value,
-            gangs: [step1Value],
+            ...(d.state.switch || { gangs: [true] }),
+            power: true,
+            gangs: [true],
           },
-          ...((d.state as any)?.power !== undefined ? { power: step1Value } : {}),
+          ...((d.state as any)?.power !== undefined ? { power: true } : {}),
         },
       };
 
       setDevices((prev) => prev.map((item) => (item.id === device.id ? step1Dev : item)));
-      showToast(`Inviato impulso a "${device.name}" (${step1Value ? 'Pressione ON...' : 'Pressione Inversa OFF...'})`);
+      if (selectedDevice && selectedDevice.id === device.id) {
+        setSelectedDevice(step1Dev);
+      }
+      showToast(`Inviato impulso a "${device.name}" (ON...)`);
 
       if (tuyaId) {
-        sendTuyaCommand(tuyaId, [{ code: dpCode, value: step1Value }], undefined, undefined, {
+        sendTuyaCommand(tuyaId, [{ code: dpCode, value: true }], undefined, undefined, {
           category: d.category,
           isGate: true,
           dpCode,
           deviceName: d.name,
         })
           .then((res) => {
-            console.log('Tuya Response Gate Step 1:', res);
+            console.log('Tuya Response Gate Step 1 (ON):', res);
             if (!res.success && res.message && (res.message.includes('60001001') || res.message.toLowerCase().includes('quota') || res.message.includes('28841002'))) {
               setTuyaQuotaBannerVisible(true);
             }
@@ -214,17 +224,18 @@ export default function App() {
         console.warn('Firestore sync warning:', dbErr);
       }
 
-      // Step 2: Rilascio dopo 500ms
+      // 2. Attendi 1.5 secondi (1500 ms)
+      // 3. Invia automaticamente il comando di spegnimento ("switch": false) e riporta lo stato UI su OFF
       setTimeout(async () => {
         if (tuyaId) {
-          sendTuyaCommand(tuyaId, [{ code: dpCode, value: step2Value }], undefined, undefined, {
+          sendTuyaCommand(tuyaId, [{ code: dpCode, value: false }], undefined, undefined, {
             category: d.category,
             isGate: true,
             dpCode,
             deviceName: d.name,
           })
             .then((res) => {
-              console.log('Tuya Response Gate Step 2:', res);
+              console.log('Tuya Response Gate Step 2 (Auto-OFF):', res);
               if (!res.success && res.message && (res.message.includes('60001001') || res.message.toLowerCase().includes('quota') || res.message.includes('28841002'))) {
                 setTuyaQuotaBannerVisible(true);
               }
@@ -237,22 +248,25 @@ export default function App() {
           state: {
             ...d.state,
             switch: {
-              ...(d.state.switch || { gangs: [step2Value] }),
-              power: step2Value,
-              gangs: [step2Value],
+              ...(d.state.switch || { gangs: [false] }),
+              power: false,
+              gangs: [false],
             },
-            ...((d.state as any)?.power !== undefined ? { power: step2Value } : {}),
+            ...((d.state as any)?.power !== undefined ? { power: false } : {}),
           },
         };
 
         setDevices((prev) => prev.map((item) => (item.id === device.id ? step2Dev : item)));
+        if (selectedDevice && selectedDevice.id === device.id) {
+          setSelectedDevice(step2Dev);
+        }
 
         try {
           await saveDeviceToDb(step2Dev);
         } catch (dbErr) {
           console.warn('Firestore sync warning:', dbErr);
         }
-      }, 500);
+      }, 1500);
 
       return;
     }
@@ -1296,6 +1310,7 @@ export default function App() {
         onUpdateDevice={handleUpdateDevice}
         onDeleteDevice={handleDeleteDevice}
         availableRooms={allRoomsList.filter(r => r !== 'Tutti')}
+        onTogglePower={handleTogglePower}
       />
 
       <SmartLifeTransferModal

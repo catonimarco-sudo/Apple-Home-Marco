@@ -84,6 +84,7 @@ interface DeviceDetailModalProps {
   onUpdateDevice: (updated: SmartDevice) => void;
   onDeleteDevice: (deviceId: string) => void;
   availableRooms?: string[];
+  onTogglePower?: (device: SmartDevice) => void;
 }
 
 export const DeviceDetailModal: React.FC<DeviceDetailModalProps> = ({
@@ -92,6 +93,7 @@ export const DeviceDetailModal: React.FC<DeviceDetailModalProps> = ({
   onUpdateDevice,
   onDeleteDevice,
   availableRooms = [],
+  onTogglePower,
 }) => {
   const [activeTab, setActiveTab] = useState<'control' | 'edit' | 'schedule' | 'info'>('control');
   const [timerMinutes, setTimerMinutes] = useState<number>(30);
@@ -712,6 +714,58 @@ export const DeviceDetailModal: React.FC<DeviceDetailModalProps> = ({
                     }`}
                   >
                     {device.state.lock.locked ? 'Sblocca Serratura' : 'Blocca Serratura'}
+                  </button>
+                </div>
+              )}
+
+              {/* Gate / Cancelletto / Varco / Pulsed Switch Impulse Controls */}
+              {(device.category === 'gate' || 
+                device.category === 'pulsed_switch' || 
+                device.customIcon === 'gate' || 
+                device.customIcon === 'pulsed_switch' ||
+                device.name.toLowerCase().includes('cancelletto') ||
+                device.name.toLowerCase().includes('cancello') ||
+                device.name.toLowerCase().includes('varco')) && (
+                <div className="bg-[#0A0A0B] p-5 rounded-2xl border border-white/5 flex flex-col items-center gap-3 text-center">
+                  <div
+                    className={`w-16 h-16 rounded-2xl flex items-center justify-center transition-all ${
+                      device.state.switch?.power ? 'bg-amber-500 text-slate-950 shadow-lg shadow-amber-500/20 scale-105' : 'bg-white/10 text-amber-400'
+                    }`}
+                  >
+                    <Key className="w-8 h-8" />
+                  </div>
+                  <div>
+                    <h4 className="text-base font-bold text-white">
+                      {device.state.switch?.power ? 'Impulso in corso (ON...)' : 'Controllo Impulso / Varco (OFF)'}
+                    </h4>
+                    <p className="text-xs text-slate-400 mt-1">
+                      Pressione impulso ON con Auto-OFF automatico dopo 1.5 secondi (1500 ms)
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (onTogglePower) {
+                        onTogglePower(device);
+                      } else {
+                        handleStateChange({
+                          switch: { ...device.state.switch!, power: true, gangs: [true] }
+                        });
+                        setTimeout(() => {
+                          handleStateChange({
+                            switch: { ...device.state.switch!, power: false, gangs: [false] }
+                          });
+                        }, 1500);
+                      }
+                    }}
+                    className={`mt-2 px-6 py-2.5 rounded-xl font-bold text-xs transition cursor-pointer flex items-center gap-2 ${
+                      device.state.switch?.power
+                        ? 'bg-amber-400 text-slate-950 shadow-lg shadow-amber-400/20'
+                        : 'bg-amber-400 hover:bg-amber-300 text-slate-950 shadow-md'
+                    }`}
+                  >
+                    <Power className="w-4 h-4" />
+                    <span>{device.state.switch?.power ? 'Impulso Attivo (Auto-OFF 1.5s)...' : 'Invia Impulso Apertura'}</span>
                   </button>
                 </div>
               )}
