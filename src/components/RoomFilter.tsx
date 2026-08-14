@@ -57,6 +57,16 @@ export const RoomFilter: React.FC<RoomFilterProps> = ({
     return combined;
   }, [devices, customRooms]);
 
+  // Automatically center selected room in the scroll view
+  React.useEffect(() => {
+    if (scrollContainerRef.current) {
+      const activeBtn = scrollContainerRef.current.querySelector(`[data-room="${selectedRoom}"]`) as HTMLElement;
+      if (activeBtn) {
+        activeBtn.scrollIntoView({ behavior: 'smooth', inline: 'center', block: 'nearest' });
+      }
+    }
+  }, [selectedRoom]);
+
   const getRoomCount = (roomName: string) => {
     if (roomName === 'Tutti') return devices.length;
     return devices.filter((d) => d.room === roomName).length;
@@ -111,6 +121,7 @@ export const RoomFilter: React.FC<RoomFilterProps> = ({
           return (
             <button
               key={roomName}
+              data-room={roomName}
               onClick={() => onSelectRoom(roomName)}
               className={`flex items-center gap-2 px-3.5 py-2 rounded-full text-xs font-semibold transition-all duration-200 cursor-pointer whitespace-nowrap border flex-shrink-0 ${
                 isSelected

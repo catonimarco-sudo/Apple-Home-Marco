@@ -1,6 +1,7 @@
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import { SmartDevice, RoomName } from '../types';
 import { DeviceCard } from './DeviceCard';
+import { motion, AnimatePresence } from 'motion/react';
 import { 
   Tv, 
   Utensils, 
@@ -17,6 +18,7 @@ import {
   Thermometer, 
   Power, 
   ChevronRight, 
+  ChevronLeft,
   Sparkles,
   Layers,
   Edit3
@@ -65,6 +67,55 @@ export const RoomsTab: React.FC<RoomsTabProps> = ({
   }, [devices, customRooms]);
 
   const [activeRoomView, setActiveRoomView] = useState<string | 'all'>('all');
+  const [swipeDirection, setSwipeDirection] = useState<'left' | 'right'>('left');
+
+  // Touch Swipe for Rooms Tab
+  const touchStartXRef = useRef<number | null>(null);
+  const touchStartYRef = useRef<number | null>(null);
+
+  const handleTouchStart = (e: React.TouchEvent) => {
+    touchStartXRef.current = e.touches[0].clientX;
+    touchStartYRef.current = e.touches[0].clientY;
+  };
+
+  const handleTouchEnd = (e: React.TouchEvent) => {
+    if (touchStartXRef.current === null || touchStartYRef.current === null) return;
+    const deltaX = e.changedTouches[0].clientX - touchStartXRef.current;
+    const deltaY = e.changedTouches[0].clientY - touchStartYRef.current;
+
+    if (Math.abs(deltaX) > 40 && Math.abs(deltaX) > Math.abs(deltaY) * 1.1) {
+      if (deltaX < 0) {
+        // Swipe Left -> Next room
+        setSwipeDirection('left');
+        if (activeRoomView === 'all') {
+          setActiveRoomView(allRooms[0]);
+        } else {
+          const currentIdx = allRooms.indexOf(activeRoomView);
+          if (currentIdx < allRooms.length - 1) {
+            setActiveRoomView(allRooms[currentIdx + 1]);
+          } else {
+            setActiveRoomView('all');
+          }
+        }
+      } else {
+        // Swipe Right -> Prev room
+        setSwipeDirection('right');
+        if (activeRoomView === 'all') {
+          setActiveRoomView(allRooms[allRooms.length - 1]);
+        } else {
+          const currentIdx = allRooms.indexOf(activeRoomView);
+          if (currentIdx > 0) {
+            setActiveRoomView(allRooms[currentIdx - 1]);
+          } else {
+            setActiveRoomView('all');
+          }
+        }
+      }
+    }
+
+    touchStartXRef.current = null;
+    touchStartYRef.current = null;
+  };
 
   const getRoomIcon = (name: string) => {
     if (DEFAULT_ROOM_ICONS[name]) return DEFAULT_ROOM_ICONS[name];
@@ -98,7 +149,11 @@ export const RoomsTab: React.FC<RoomsTabProps> = ({
     : allRooms.filter((r) => r === activeRoomView);
 
   return (
-    <div className="space-y-8 text-slate-100">
+    <div 
+      onTouchStart={handleTouchStart}
+      onTouchEnd={handleTouchEnd}
+      className="space-y-8 text-slate-100 touch-pan-y"
+    >
       {/* Apple Home Rooms Header Bar */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-black/30 backdrop-blur-xl border border-white/10 p-4 rounded-[26px]">
         <div className="flex items-center gap-3">
@@ -113,7 +168,40 @@ export const RoomsTab: React.FC<RoomsTabProps> = ({
           </div>
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap">
+          {/* Swipe arrows for quick room cycling */}
+          {activeRoomView !== 'all' && (
+            <div className="flex items-center gap-1 bg-black/40 backdrop-blur-md px-2 py-1 rounded-full border border-white/15">
+              <button
+                type="button"
+                onClick={() => {
+                  const idx = allRooms.indexOf(activeRoomView);
+                  setSwipeDirection('right');
+                  if (idx > 0) setActiveRoomView(allRooms[idx - 1]);
+                  else setActiveRoomView(allRooms[allRooms.length - 1]);
+                }}
+                className="p-1 rounded-full text-slate-400 hover:text-white transition cursor-pointer"
+                title="Stanza precedente"
+              >
+                <ChevronLeft className="w-3.5 h-3.5" />
+              </button>
+              <span className="text-xs font-bold px-1.5 text-amber-400">{activeRoomView}</span>
+              <button
+                type="button"
+                onClick={() => {
+                  const idx = allRooms.indexOf(activeRoomView);
+                  setSwipeDirection('left');
+                  if (idx < allRooms.length - 1) setActiveRoomView(allRooms[idx + 1]);
+                  else setActiveRoomView(allRooms[0]);
+                }}
+                className="p-1 rounded-full text-slate-400 hover:text-white transition cursor-pointer"
+                title="Stanza successiva"
+              >
+                <ChevronRight className="w-3.5 h-3.5" />
+              </button>
+            </div>
+          )}
+
           {/* Room quick pill selector */}
           <button
             onClick={() => setActiveRoomView('all')}
@@ -164,95 +252,104 @@ export const RoomsTab: React.FC<RoomsTabProps> = ({
       </div>
 
       {/* Detailed Rooms Sections */}
-      <div className="space-y-8">
-        {roomsToDisplay.map((roomName) => {
-          const stats = getRoomStats(roomName);
+      <AnimatePresence mode="wait">
+        <motion.div 
+          key={activeRoomView}
+          initial={{ opacity: 0, x: swipeDirection === 'left' ? 20 : -20 }}
+          animate={{ opacity: 1, x: 0 }}
+          exit={{ opacity: 0, x: swipeDirection === 'left' ? -20 : 20 }}
+          transition={{ duration: 0.2, ease: 'easeOut' }}
+          className="space-y-8"
+        >
+          {roomsToDisplay.map((roomName) => {
+            const stats = getRoomStats(roomName);
 
-          return (
-            <div
-              key={roomName}
-              className="bg-black/25 backdrop-blur-xl border border-white/10 rounded-[28px] p-5 sm:p-6 space-y-4 shadow-xl relative overflow-hidden"
-            >
-              {/* Room Card Top Header */}
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-white/10">
-                <div className="flex items-center gap-3">
-                  <div className="p-2.5 rounded-2xl bg-amber-400/15 border border-amber-400/30 text-amber-400">
-                    {getRoomIcon(roomName)}
+            return (
+              <div
+                key={roomName}
+                className="bg-black/25 backdrop-blur-xl border border-white/10 rounded-[28px] p-5 sm:p-6 space-y-4 shadow-xl relative overflow-hidden"
+              >
+                {/* Room Card Top Header */}
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-white/10">
+                  <div className="flex items-center gap-3">
+                    <div className="p-2.5 rounded-2xl bg-amber-400/15 border border-amber-400/30 text-amber-400">
+                      {getRoomIcon(roomName)}
+                    </div>
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <h3 className="text-lg font-black text-white">{roomName}</h3>
+                        <span className="text-[11px] font-mono bg-white/10 px-2.5 py-0.5 rounded-full text-slate-300 border border-white/10">
+                          {stats.totalCount} Dispositivi
+                        </span>
+                      </div>
+                      <div className="flex items-center gap-3 text-xs text-slate-400 mt-0.5">
+                        <span className="flex items-center gap-1 text-amber-300">
+                          <SunMedium className="w-3.5 h-3.5 text-amber-400" />
+                          {stats.activeCount} attivi
+                        </span>
+                        <span>•</span>
+                        <span className="flex items-center gap-1 text-emerald-400 font-mono">
+                          <Zap className="w-3.5 h-3.5" />
+                          {stats.roomWatts.toFixed(0)} W
+                        </span>
+                        {stats.currentTemp && (
+                          <>
+                            <span>•</span>
+                            <span className="flex items-center gap-1 text-sky-400 font-mono">
+                              <Thermometer className="w-3.5 h-3.5" />
+                              {stats.currentTemp}°C
+                            </span>
+                          </>
+                        )}
+                      </div>
+                    </div>
                   </div>
-                  <div>
-                    <div className="flex items-center gap-2">
-                      <h3 className="text-lg font-black text-white">{roomName}</h3>
-                      <span className="text-[11px] font-mono bg-white/10 px-2.5 py-0.5 rounded-full text-slate-300 border border-white/10">
-                        {stats.totalCount} Dispositivi
-                      </span>
-                    </div>
-                    <div className="flex items-center gap-3 text-xs text-slate-400 mt-0.5">
-                      <span className="flex items-center gap-1 text-amber-300">
-                        <SunMedium className="w-3.5 h-3.5 text-amber-400" />
-                        {stats.activeCount} attivi
-                      </span>
-                      <span>•</span>
-                      <span className="flex items-center gap-1 text-emerald-400 font-mono">
-                        <Zap className="w-3.5 h-3.5" />
-                        {stats.roomWatts.toFixed(0)} W
-                      </span>
-                      {stats.currentTemp && (
-                        <>
-                          <span>•</span>
-                          <span className="flex items-center gap-1 text-sky-400 font-mono">
-                            <Thermometer className="w-3.5 h-3.5" />
-                            {stats.currentTemp}°C
-                          </span>
-                        </>
-                      )}
-                    </div>
+
+                  {/* Quick Batch Actions for Room */}
+                  <div className="flex items-center gap-2 self-end sm:self-auto">
+                    {onTurnOnRoom && (
+                      <button
+                        onClick={() => onTurnOnRoom(roomName)}
+                        className="px-3 py-1.5 rounded-full bg-white/10 hover:bg-white/20 text-white text-xs font-semibold border border-white/15 transition cursor-pointer"
+                      >
+                        Accendi Tutto
+                      </button>
+                    )}
+                    {onTurnOffRoom && (
+                      <button
+                        onClick={() => onTurnOffRoom(roomName)}
+                        className="px-3 py-1.5 rounded-full bg-rose-500/15 hover:bg-rose-500/25 text-rose-300 text-xs font-semibold border border-rose-500/30 transition cursor-pointer"
+                      >
+                        Spegni Tutto
+                      </button>
+                    )}
                   </div>
                 </div>
 
-                {/* Quick Batch Actions for Room */}
-                <div className="flex items-center gap-2 self-end sm:self-auto">
-                  {onTurnOnRoom && (
-                    <button
-                      onClick={() => onTurnOnRoom(roomName)}
-                      className="px-3 py-1.5 rounded-full bg-white/10 hover:bg-white/20 text-white text-xs font-semibold border border-white/15 transition cursor-pointer"
-                    >
-                      Accendi Tutto
-                    </button>
-                  )}
-                  {onTurnOffRoom && (
-                    <button
-                      onClick={() => onTurnOffRoom(roomName)}
-                      className="px-3 py-1.5 rounded-full bg-rose-500/15 hover:bg-rose-500/25 text-rose-300 text-xs font-semibold border border-rose-500/30 transition cursor-pointer"
-                    >
-                      Spegni Tutto
-                    </button>
-                  )}
-                </div>
+                {/* Device Cards Grid for this Room */}
+                {stats.devices.length === 0 ? (
+                  <div className="py-8 text-center bg-black/20 rounded-2xl border border-dashed border-white/10">
+                    <p className="text-xs text-slate-400">Nessun dispositivo assegnato a questa stanza.</p>
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-2 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3 sm:gap-4">
+                    {stats.devices.map((dev) => (
+                      <DeviceCard
+                        key={dev.id}
+                        device={dev}
+                        onTogglePower={onTogglePower}
+                        onUpdateState={onUpdateState}
+                        onClickDetail={onClickDetail}
+                        onDeleteDevice={onDeleteDevice}
+                      />
+                    ))}
+                  </div>
+                )}
               </div>
-
-              {/* Device Cards Grid for this Room */}
-              {stats.devices.length === 0 ? (
-                <div className="py-8 text-center bg-black/20 rounded-2xl border border-dashed border-white/10">
-                  <p className="text-xs text-slate-400">Nessun dispositivo assegnato a questa stanza.</p>
-                </div>
-              ) : (
-                <div className="grid grid-cols-2 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3 sm:gap-4">
-                  {stats.devices.map((dev) => (
-                    <DeviceCard
-                      key={dev.id}
-                      device={dev}
-                      onTogglePower={onTogglePower}
-                      onUpdateState={onUpdateState}
-                      onClickDetail={onClickDetail}
-                      onDeleteDevice={onDeleteDevice}
-                    />
-                  ))}
-                </div>
-              )}
-            </div>
-          );
-        })}
-      </div>
+            );
+          })}
+        </motion.div>
+      </AnimatePresence>
     </div>
   );
 };

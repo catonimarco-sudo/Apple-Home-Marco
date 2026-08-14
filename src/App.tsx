@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { SmartDevice, AutomationRule, RoomName } from './types';
 import { INITIAL_DEVICES, INITIAL_AUTOMATIONS } from './data/mockDevices';
 import { Navbar } from './components/Navbar';
@@ -13,6 +13,7 @@ import { AIAssistantDrawer } from './components/AIAssistantDrawer';
 import { AddDeviceModal } from './components/AddDeviceModal';
 import { AddRoomModal } from './components/AddRoomModal';
 import { WallpaperModal } from './components/WallpaperModal';
+import { motion, AnimatePresence } from 'motion/react';
 import { 
   subscribeToDevices, 
   subscribeToAutomations, 
@@ -38,6 +39,7 @@ import {
   Info,
   ShieldCheck,
   ChevronRight,
+  ChevronLeft,
   GripVertical,
   Move,
   RotateCcw,
@@ -645,6 +647,79 @@ export default function App() {
     return list;
   }, [devices, selectedRoom, searchQuery, deviceOrder]);
 
+  // Aggregate all unique room names
+  const allRoomsList = useMemo(() => {
+    const base = ['Tutti', 'Salotto', 'Cucina', 'Camera da Letto', 'Bagno', 'Studio', 'Ingresso', 'Giardino', 'Garage'];
+    const fromDevices = devices.map((d) => d.room).filter(Boolean);
+    return Array.from(new Set([...base, ...customRooms, ...fromDevices]));
+  }, [devices, customRooms]);
+
+  const currentRoomIndex = allRoomsList.indexOf(selectedRoom);
+  const [swipeDirection, setSwipeDirection] = useState<'left' | 'right'>('left');
+
+  const handleGoNextRoom = () => {
+    setSwipeDirection('left');
+    if (currentRoomIndex < allRoomsList.length - 1) {
+      setSelectedRoom(allRoomsList[currentRoomIndex + 1]);
+    } else {
+      setSelectedRoom(allRoomsList[0]);
+    }
+  };
+
+  const handleGoPrevRoom = () => {
+    setSwipeDirection('right');
+    if (currentRoomIndex > 0) {
+      setSelectedRoom(allRoomsList[currentRoomIndex - 1]);
+    } else {
+      setSelectedRoom(allRoomsList[allRoomsList.length - 1]);
+    }
+  };
+
+  // Touch Swipe Gesture Detection
+  const touchStartXRef = useRef<number | null>(null);
+  const touchStartYRef = useRef<number | null>(null);
+  const touchStartTimeRef = useRef<number>(0);
+
+  const handleTouchStart = (e: React.TouchEvent) => {
+    touchStartXRef.current = e.touches[0].clientX;
+    touchStartYRef.current = e.touches[0].clientY;
+    touchStartTimeRef.current = Date.now();
+  };
+
+  const handleTouchEnd = (e: React.TouchEvent) => {
+    if (touchStartXRef.current === null || touchStartYRef.current === null) return;
+    const deltaX = e.changedTouches[0].clientX - touchStartXRef.current;
+    const deltaY = e.changedTouches[0].clientY - touchStartYRef.current;
+    const duration = Date.now() - touchStartTimeRef.current;
+
+    // Trigger swipe if horizontal displacement is significant and faster than 900ms
+    if (Math.abs(deltaX) > 35 && Math.abs(deltaX) > Math.abs(deltaY) * 1.1 && duration < 900) {
+      if (activeTab === 'devices') {
+        if (deltaX < 0) {
+          // Swipe Left -> Next room
+          handleGoNextRoom();
+        } else {
+          // Swipe Right -> Prev room
+          handleGoPrevRoom();
+        }
+      } else {
+        // Swiping across tabs
+        const tabs: ('devices' | 'rooms' | 'automations' | 'energy')[] = ['devices', 'rooms', 'automations', 'energy'];
+        const tabIdx = tabs.indexOf(activeTab as any);
+        if (tabIdx !== -1) {
+          if (deltaX < 0 && tabIdx < tabs.length - 1) {
+            setActiveTab(tabs[tabIdx + 1]);
+          } else if (deltaX > 0 && tabIdx > 0) {
+            setActiveTab(tabs[tabIdx - 1]);
+          }
+        }
+      }
+    }
+
+    touchStartXRef.current = null;
+    touchStartYRef.current = null;
+  };
+
   const totalActiveCount = devices.filter(
     (d) =>
       d.state.plug?.power ||
@@ -709,8 +784,12 @@ export default function App() {
         totalWatts={totalWatts}
       />
 
-      {/* Main Container */}
-      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 relative z-10">
+      {/* Main Container with Touch Swipe support */}
+      <main 
+        onTouchStart={handleTouchStart}
+        onTouchEnd={handleTouchEnd}
+        className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 relative z-10 touch-pan-y"
+      >
         
         {/* Tuya Cloud Quota Exceeded Banner */}
         {tuyaQuotaBannerVisible && (
@@ -801,18 +880,60 @@ export default function App() {
               onOpenAddRoomModal={() => setIsAddRoomModalOpen(true)}
             />
 
-            {/* Device Cards Grid */}
+            {/* Device Cards Grid with Room Swipe Controls */}
             <div>
-              <div className="flex items-center justify-between mb-3">
-                <h3 className="text-xs font-bold text-slate-300 uppercase tracking-wider flex items-center gap-2">
-                  <Cpu className="w-3.5 h-3.5 text-amber-400" />
-                  <span>
-                    {selectedRoom === 'Tutti' ? 'Tutti i Dispositivi' : `Stanza: ${selectedRoom}`} ({filteredDevices.length})
+              <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
+                <div className="flex items-center gap-2">
+                  <h3 className="text-xs font-bold text-slate-300 uppercase tracking-wider flex items-center gap-2">
+                    <Cpu className="w-3.5 h-3.5 text-amber-400" />
+                    <span>
+                      {selectedRoom === 'Tutti' ? 'Tutti i Dispositivi' : `Stanza: ${selectedRoom}`} ({filteredDevices.length})
+                    </span>
+                  </h3>
+
+                  {/* Room Quick Switcher & Swipe Indicator */}
+                  <div className="flex items-center gap-1 bg-black/40 backdrop-blur-md px-2 py-0.5 rounded-full border border-white/10">
+                    <button
+                      type="button"
+                      onClick={handleGoPrevRoom}
+                      className="p-1 rounded-full text-slate-400 hover:text-white hover:bg-white/10 transition cursor-pointer"
+                      title="Stanza precedente (o swipe a destra)"
+                      aria-label="Stanza precedente"
+                    >
+                      <ChevronLeft className="w-3.5 h-3.5" />
+                    </button>
+                    
+                    {/* Room Dots Indicator */}
+                    <div className="flex items-center gap-1 px-1">
+                      {allRoomsList.map((r, i) => (
+                        <div
+                          key={r}
+                          onClick={() => setSelectedRoom(r)}
+                          className={`rounded-full transition-all cursor-pointer ${
+                            selectedRoom === r
+                              ? 'w-3 h-1.5 bg-amber-400 shadow-sm'
+                              : 'w-1.5 h-1.5 bg-white/20 hover:bg-white/40'
+                          }`}
+                          title={`Vai a ${r}`}
+                        />
+                      ))}
+                    </div>
+
+                    <button
+                      type="button"
+                      onClick={handleGoNextRoom}
+                      className="p-1 rounded-full text-slate-400 hover:text-white hover:bg-white/10 transition cursor-pointer"
+                      title="Stanza successiva (o swipe a sinistra)"
+                      aria-label="Stanza successiva"
+                    >
+                      <ChevronRight className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+
+                  <span className="text-[10px] text-slate-400 hidden lg:inline-flex items-center gap-1 opacity-70">
+                    👈 Swipe per cambiare stanza 👉
                   </span>
-                  <span className="text-[10px] text-amber-300/80 normal-case font-normal hidden sm:inline-flex items-center gap-1 bg-white/5 px-2 py-0.5 rounded-full border border-white/10">
-                    <Move className="w-3 h-3 text-amber-400" /> Trascina per riordinare
-                  </span>
-                </h3>
+                </div>
 
                 <div className="flex items-center gap-2">
                   <button
@@ -849,61 +970,78 @@ export default function App() {
 
               {filteredDevices.length === 0 ? (
                 <div className="bg-slate-900/60 backdrop-blur-xl border border-white/10 rounded-[26px] p-12 text-center space-y-3">
-                  <p className="text-sm text-slate-400">Nessun dispositivo trovato per i filtri selezionati.</p>
-                  <button
-                    onClick={() => setIsTransferModalOpen(true)}
-                    className="bg-amber-400 text-slate-950 font-bold text-xs px-5 py-2.5 rounded-full transition cursor-pointer hover:bg-amber-300"
-                  >
-                    Importa da Smart Life / Tuya
-                  </button>
+                  <p className="text-sm text-slate-400">Nessun dispositivo trovato per la stanza "{selectedRoom}".</p>
+                  <div className="flex items-center justify-center gap-3 pt-2">
+                    <button
+                      onClick={() => setSelectedRoom('Tutti')}
+                      className="bg-white/10 hover:bg-white/20 text-white font-bold text-xs px-4 py-2 rounded-full transition cursor-pointer"
+                    >
+                      Mostra Tutti
+                    </button>
+                    <button
+                      onClick={() => setIsTransferModalOpen(true)}
+                      className="bg-amber-400 text-slate-950 font-bold text-xs px-4 py-2 rounded-full transition cursor-pointer hover:bg-amber-300"
+                    >
+                      Importa da Smart Life / Tuya
+                    </button>
+                  </div>
                 </div>
               ) : (
-                <div className="grid grid-cols-2 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3 sm:gap-4">
-                  {filteredDevices.map((dev) => {
-                    const isDragging = draggedDeviceId === dev.id;
-                    const isDragOver = dragOverDeviceId === dev.id;
-                    const isCamera = dev.category === 'camera' || dev.customIcon === 'camera' || dev.name.toLowerCase().includes('telecamera') || dev.name.toLowerCase().includes('camera');
+                <AnimatePresence mode="wait">
+                  <motion.div
+                    key={selectedRoom}
+                    initial={{ opacity: 0, x: swipeDirection === 'left' ? 24 : -24 }}
+                    animate={{ opacity: 1, x: 0 }}
+                    exit={{ opacity: 0, x: swipeDirection === 'left' ? -24 : 24 }}
+                    transition={{ duration: 0.18, ease: 'easeOut' }}
+                    className="grid grid-cols-2 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3 sm:gap-4"
+                  >
+                    {filteredDevices.map((dev) => {
+                      const isDragging = draggedDeviceId === dev.id;
+                      const isDragOver = dragOverDeviceId === dev.id;
+                      const isCamera = dev.category === 'camera' || dev.customIcon === 'camera' || dev.name.toLowerCase().includes('telecamera') || dev.name.toLowerCase().includes('camera');
 
-                    return (
-                      <div
-                        key={dev.id}
-                        draggable={true}
-                        onDragStart={(e) => handleDragStart(e, dev.id)}
-                        onDragOver={(e) => handleDragOver(e, dev.id)}
-                        onDragLeave={(e) => handleDragLeave(e, dev.id)}
-                        onDrop={(e) => handleDrop(e, dev.id)}
-                        onDragEnd={handleDragEnd}
-                        className={`relative group/drag transition-all duration-200 rounded-[26px] ${
-                          isCamera ? 'col-span-full' : ''
-                        } ${
-                          isDragging ? 'opacity-40 scale-95 border-2 border-dashed border-amber-400' : ''
-                        } ${
-                          isDragOver ? 'ring-2 ring-amber-400 scale-[1.02] shadow-2xl z-20' : ''
-                        } ${
-                          isEditMode ? 'animate-pulse ring-1 ring-amber-400/40' : ''
-                        }`}
-                      >
-                        {/* Drag Handle Overlay Badge */}
+                      return (
                         <div
-                          className={`absolute top-2 left-2 z-30 transition-opacity bg-black/75 backdrop-blur-md p-1 rounded-lg border border-white/20 text-slate-300 cursor-grab active:cursor-grabbing hover:text-amber-400 shadow-md ${
-                            isEditMode ? 'opacity-100' : 'opacity-0 group-hover/drag:opacity-100'
+                          key={dev.id}
+                          draggable={true}
+                          onDragStart={(e) => handleDragStart(e, dev.id)}
+                          onDragOver={(e) => handleDragOver(e, dev.id)}
+                          onDragLeave={(e) => handleDragLeave(e, dev.id)}
+                          onDrop={(e) => handleDrop(e, dev.id)}
+                          onDragEnd={handleDragEnd}
+                          className={`relative group/drag transition-all duration-200 rounded-[26px] ${
+                            isCamera ? 'col-span-full' : ''
+                          } ${
+                            isDragging ? 'opacity-40 scale-95 border-2 border-dashed border-amber-400' : ''
+                          } ${
+                            isDragOver ? 'ring-2 ring-amber-400 scale-[1.02] shadow-2xl z-20' : ''
+                          } ${
+                            isEditMode ? 'animate-pulse ring-1 ring-amber-400/40' : ''
                           }`}
-                          title="Trascina per spostare la card"
                         >
-                          <GripVertical className="w-4 h-4" />
-                        </div>
+                          {/* Drag Handle Overlay Badge */}
+                          <div
+                            className={`absolute top-2 left-2 z-30 transition-opacity bg-black/75 backdrop-blur-md p-1 rounded-lg border border-white/20 text-slate-300 cursor-grab active:cursor-grabbing hover:text-amber-400 shadow-md ${
+                              isEditMode ? 'opacity-100' : 'opacity-0 group-hover/drag:opacity-100'
+                            }`}
+                            title="Trascina per spostare la card"
+                          >
+                            <GripVertical className="w-4 h-4" />
+                          </div>
 
-                        <DeviceCard
-                          device={dev}
-                          onTogglePower={handleTogglePower}
-                          onUpdateState={handleUpdateDeviceState}
-                          onClickDetail={(d) => setSelectedDevice(d)}
-                          onDeleteDevice={handleDeleteDevice}
-                        />
-                      </div>
-                    );
-                  })}
-                </div>
+                          <DeviceCard
+                            device={dev}
+                            onTogglePower={handleTogglePower}
+                            onUpdateState={handleUpdateDeviceState}
+                            onClickDetail={(d) => setSelectedDevice(d)}
+                            onDeleteDevice={handleDeleteDevice}
+                          />
+                        </div>
+                      );
+                    })}
+                  </motion.div>
+                </AnimatePresence>
               )}
             </div>
           </div>
