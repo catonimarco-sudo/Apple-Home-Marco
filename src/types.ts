@@ -19,7 +19,15 @@ export type RoomName =
   | 'Giardino'
   | 'Garage'
   | 'Studio'
-  | 'Ingresso';
+  | 'Ingresso'
+  | (string & {});
+
+export interface CustomRoomInfo {
+  name: string;
+  iconName?: string;
+  color?: string;
+  order?: number;
+}
 
 export type DeviceVendor = 'Smart Life (Tuya)' | 'Zigbee Gateway' | 'SmartLife Hub' | 'Local Wi-Fi';
 

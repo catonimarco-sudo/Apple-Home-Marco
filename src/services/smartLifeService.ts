@@ -233,7 +233,7 @@ export async function sendTuyaCommandDirectClientSide(
   code: string,
   value: any,
   creds: TuyaCloudCredentials,
-  extraOptions?: { category?: string; isGate?: boolean; dpCode?: string }
+  extraOptions?: { category?: string; isGate?: boolean; dpCode?: string; deviceName?: string; name?: string }
 ): Promise<{ success: boolean; message: string }> {
   try {
     const cleanDeviceId = String(deviceId || '').trim();
@@ -280,8 +280,16 @@ export async function sendTuyaCommandDirectClientSide(
 
     const accessToken = tokenData.result.access_token;
     const isGate = extraOptions?.isGate || extraOptions?.category === 'gate' || extraOptions?.category === 'pulsed_switch';
+    const deviceNameStr = (extraOptions?.deviceName || extraOptions?.name || '').toLowerCase();
+    const isCancelletto =
+      deviceNameStr.includes('cancelletto') ||
+      cleanDeviceId.toLowerCase().includes('cancelletto') ||
+      code === 'switch' ||
+      extraOptions?.dpCode === 'switch';
 
-    const candidateCodes: string[] = isGate
+    const candidateCodes: string[] = isCancelletto
+      ? ['switch', 'switch_led', 'switch_1']
+      : isGate
       ? Array.from(new Set([
           extraOptions?.dpCode,
           code,
@@ -366,7 +374,7 @@ export async function sendTuyaCommand(
   code: string | Array<{ code: string; value: any }>,
   value?: any,
   customCredentials?: TuyaCloudCredentials,
-  extraOptions?: { category?: string; isGate?: boolean; dpCode?: string }
+  extraOptions?: { category?: string; isGate?: boolean; dpCode?: string; deviceName?: string; name?: string }
 ): Promise<{ success: boolean; message: string; statusCode?: number }> {
   let realCode = 'switch_1';
   let realValue: any = true;
@@ -381,7 +389,7 @@ export async function sendTuyaCommand(
       if (customCredentials && typeof customCredentials === 'object') {
         options = customCredentials as any;
       }
-    } else if (value && typeof value === 'object' && ('category' in value || 'isGate' in value || 'dpCode' in value)) {
+    } else if (value && typeof value === 'object' && ('category' in value || 'isGate' in value || 'dpCode' in value || 'deviceName' in value)) {
       options = value as any;
     }
   } else {
@@ -399,6 +407,17 @@ export async function sendTuyaCommand(
   }
 
   const isGate = options?.isGate || options?.category === 'gate' || options?.category === 'pulsed_switch';
+  const deviceNameStr = (options?.deviceName || options?.name || '').toLowerCase();
+  const isCancelletto =
+    deviceNameStr.includes('cancelletto') ||
+    deviceId.toLowerCase().includes('cancelletto') ||
+    realCode === 'switch' ||
+    options?.dpCode === 'switch';
+
+  // Per il Cancelletto usa primariamente 'switch' se non diversamente specificato
+  if (isCancelletto && realCode === 'switch_1' && !options?.dpCode) {
+    realCode = 'switch';
+  }
 
   // 1. Try backend serverless route /api/tuya-command
   try {
@@ -417,6 +436,7 @@ export async function sendTuyaCommand(
         category: options?.category,
         isGate,
         dpCode: options?.dpCode || realCode,
+        deviceName: options?.deviceName || options?.name,
       }),
     });
 

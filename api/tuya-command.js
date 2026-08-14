@@ -155,18 +155,31 @@ export default async function handler(req, res) {
     let candidateCodes = [];
 
     const isGate = body.isGate || body.category === 'gate' || body.category === 'pulsed_switch';
+    const deviceNameStr = (body.deviceName || body.name || '').toLowerCase();
+    const isCancelletto =
+      deviceNameStr.includes('cancelletto') ||
+      cleanDeviceId.toLowerCase().includes('cancelletto') ||
+      body.dpCode === 'switch' ||
+      primaryCmd.code === 'switch';
 
-    if (body.dpCode) {
-      candidateCodes.push(body.dpCode);
-    }
-    if (primaryCmd.code) {
-      candidateCodes.push(primaryCmd.code);
-    }
+    if (isCancelletto) {
+      // Per il solo "Cancelletto" invia primariamente il codice "switch"
+      // Payload: { "commands": [{ "code": "switch", "value": ... }] } con fallback "switch_led", "switch_1"
+      candidateCodes.push('switch', 'switch_led', 'switch_1');
+    } else {
+      // MANTIENI INVARIATO il codice e la logica per tutti gli altri dispositivi (incluso il "Cancellone", che deve continuare a inviare "code": "switch_1")
+      if (body.dpCode) {
+        candidateCodes.push(body.dpCode);
+      }
+      if (primaryCmd.code) {
+        candidateCodes.push(primaryCmd.code);
+      }
 
-    if (isGate) {
-      candidateCodes.push('switch_1', 'switch', 'doorcontrol_1', 'gate_control');
-    } else if (typeof primaryCmd.value === 'boolean') {
-      candidateCodes.push('switch_1', 'switch', 'switch_led', 'power', 'on_off');
+      if (isGate) {
+        candidateCodes.push('switch_1', 'switch', 'doorcontrol_1', 'gate_control');
+      } else if (typeof primaryCmd.value === 'boolean') {
+        candidateCodes.push('switch_1', 'switch', 'switch_led', 'power', 'on_off');
+      }
     }
 
     candidateCodes = Array.from(new Set(candidateCodes)).filter(Boolean);

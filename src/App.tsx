@@ -8,8 +8,10 @@ import { DeviceDetailModal } from './components/DeviceDetailModal';
 import { SmartLifeTransferModal } from './components/SmartLifeTransferModal';
 import { AutomationsTab } from './components/AutomationsTab';
 import { EnergyTab } from './components/EnergyTab';
+import { RoomsTab } from './components/RoomsTab';
 import { AIAssistantDrawer } from './components/AIAssistantDrawer';
 import { AddDeviceModal } from './components/AddDeviceModal';
+import { AddRoomModal } from './components/AddRoomModal';
 import { WallpaperModal } from './components/WallpaperModal';
 import { 
   subscribeToDevices, 
@@ -52,15 +54,27 @@ export default function App() {
   const [tuyaQuotaBannerVisible, setTuyaQuotaBannerVisible] = useState(false);
 
   // UI Navigation & Filters
-  const [activeTab, setActiveTab] = useState<'devices' | 'automations' | 'energy' | 'ai'>('devices');
+  const [activeTab, setActiveTab] = useState<'devices' | 'rooms' | 'automations' | 'energy' | 'ai'>('devices');
   const [selectedRoom, setSelectedRoom] = useState<RoomName | 'Tutti'>('Tutti');
   const [searchQuery, setSearchQuery] = useState<string>('');
+  const [isEditMode, setIsEditMode] = useState<boolean>(false);
+
+  // Custom Rooms list (persisted in localStorage)
+  const [customRooms, setCustomRooms] = useState<string[]>(() => {
+    try {
+      const saved = localStorage.getItem('smartlife_hub_custom_rooms');
+      return saved ? JSON.parse(saved) : [];
+    } catch {
+      return [];
+    }
+  });
 
   // Modals & Drawers
   const [selectedDevice, setSelectedDevice] = useState<SmartDevice | null>(null);
   const [isTransferModalOpen, setIsTransferModalOpen] = useState<boolean>(false);
   const [isAiDrawerOpen, setIsAiDrawerOpen] = useState<boolean>(false);
   const [isAddDeviceModalOpen, setIsAddDeviceModalOpen] = useState<boolean>(false);
+  const [isAddRoomModalOpen, setIsAddRoomModalOpen] = useState<boolean>(false);
   const [isWallpaperModalOpen, setIsWallpaperModalOpen] = useState<boolean>(false);
   const [wallpaperUrl, setWallpaperUrl] = useState<string>(() => {
     return localStorage.getItem('smartlife_hub_wallpaper') || '';
@@ -121,7 +135,8 @@ export default function App() {
     const isGateOrImpulse = d.category === 'gate' || d.category === 'pulsed_switch' || d.customIcon === 'gate' || d.customIcon === 'pulsed_switch';
 
     if (isGateOrImpulse) {
-      let dpCode = 'switch_1';
+      const isCancelletto = (device.name || '').toLowerCase().includes('cancelletto');
+      let dpCode = isCancelletto ? 'switch' : 'switch_1';
       if (d.dpCode && d.dpCode.trim()) {
         dpCode = d.dpCode.trim();
       } else if (d.channel && d.channel !== '1' && d.channel !== 'default') {
@@ -153,10 +168,11 @@ export default function App() {
       showToast(`Inviato impulso a "${device.name}" (${step1Value ? 'Pressione ON...' : 'Pressione Inversa OFF...'})`);
 
       if (tuyaId) {
-        sendTuyaCommand(tuyaId, [{ code: dpCode || 'switch_1', value: step1Value }], undefined, undefined, {
+        sendTuyaCommand(tuyaId, [{ code: dpCode, value: step1Value }], undefined, undefined, {
           category: d.category,
           isGate: true,
           dpCode,
+          deviceName: d.name,
         })
           .then((res) => {
             console.log('Tuya Response Gate Step 1:', res);
@@ -176,10 +192,11 @@ export default function App() {
       // Step 2: Rilascio dopo 500ms
       setTimeout(async () => {
         if (tuyaId) {
-          sendTuyaCommand(tuyaId, [{ code: dpCode || 'switch_1', value: step2Value }], undefined, undefined, {
+          sendTuyaCommand(tuyaId, [{ code: dpCode, value: step2Value }], undefined, undefined, {
             category: d.category,
             isGate: true,
             dpCode,
+            deviceName: d.name,
           })
             .then((res) => {
               console.log('Tuya Response Gate Step 2:', res);
@@ -323,6 +340,7 @@ export default function App() {
         const res = await sendTuyaCommand(tuyaId, commandCode, commandValue, undefined, {
           category: d.category,
           dpCode: d.dpCode || commandCode,
+          deviceName: d.name,
         });
         if (res.success) {
           showToast(`Stato aggiornato Tuya: ${device.name} ${commandValue ? 'Acceso' : 'Spento'}`);
@@ -531,6 +549,77 @@ export default function App() {
     showToast('Ordine originale dei dispositivi ripristinato.');
   };
 
+  // Custom Room Handlers
+  const handleAddRoom = async (newRoomName: string, _iconName: string, assignedDeviceIds: string[]) => {
+    const updatedCustom = Array.from(new Set([...customRooms, newRoomName]));
+    setCustomRooms(updatedCustom);
+    try {
+      localStorage.setItem('smartlife_hub_custom_rooms', JSON.stringify(updatedCustom));
+    } catch (e) {
+      console.warn('Could not persist custom rooms:', e);
+    }
+
+    if (assignedDeviceIds.length > 0) {
+      const updatedDevices = devices.map((d) =>
+        assignedDeviceIds.includes(d.id) ? { ...d, room: newRoomName as RoomName } : d
+      );
+      setDevices(updatedDevices);
+      const changed = updatedDevices.filter((d) => assignedDeviceIds.includes(d.id));
+      await saveBatchDevicesToDb(changed);
+    }
+
+    showToast(`Stanza "${newRoomName}" creata con successo!`);
+  };
+
+  const handleTurnOffRoom = async (roomName: string) => {
+    const roomDevices = devices.filter((d) => d.room === roomName);
+    const updated = devices.map((d) => {
+      if (d.room === roomName) {
+        return {
+          ...d,
+          state: {
+            ...d.state,
+            plug: d.state.plug ? { ...d.state.plug, power: false, watts: 0 } : undefined,
+            light: d.state.light ? { ...d.state.light, power: false } : undefined,
+            switch: d.state.switch ? { ...d.state.switch, power: false, gangs: d.state.switch.gangs.map(() => false) } : undefined,
+          },
+        };
+      }
+      return d;
+    });
+
+    setDevices(updated);
+    showToast(`Tutti i dispositivi in "${roomName}" sono stati spenti.`);
+    
+    // Sync to cloud
+    const toSave = updated.filter((d) => d.room === roomName);
+    await saveBatchDevicesToDb(toSave);
+  };
+
+  const handleTurnOnRoom = async (roomName: string) => {
+    const updated = devices.map((d) => {
+      if (d.room === roomName) {
+        return {
+          ...d,
+          state: {
+            ...d.state,
+            plug: d.state.plug ? { ...d.state.plug, power: true, watts: Math.max(d.state.plug.watts, 60) } : undefined,
+            light: d.state.light ? { ...d.state.light, power: true, brightness: d.state.light.brightness || 80 } : undefined,
+            switch: d.state.switch ? { ...d.state.switch, power: true, gangs: d.state.switch.gangs.map(() => true) } : undefined,
+          },
+        };
+      }
+      return d;
+    });
+
+    setDevices(updated);
+    showToast(`Tutti i dispositivi in "${roomName}" sono stati accesi.`);
+    
+    // Sync to cloud
+    const toSave = updated.filter((d) => d.room === roomName);
+    await saveBatchDevicesToDb(toSave);
+  };
+
   // Filtered & Custom Ordered devices list
   const filteredDevices = useMemo(() => {
     const list = devices.filter((dev) => {
@@ -613,6 +702,7 @@ export default function App() {
         onOpenAiDrawer={() => setIsAiDrawerOpen(true)}
         onOpenAddDeviceModal={() => setIsAddDeviceModalOpen(true)}
         onOpenWallpaperModal={() => setIsWallpaperModalOpen(true)}
+        onOpenAddRoomModal={() => setIsAddRoomModalOpen(true)}
         searchQuery={searchQuery}
         setSearchQuery={setSearchQuery}
         totalActiveCount={totalActiveCount}
@@ -707,6 +797,8 @@ export default function App() {
               selectedRoom={selectedRoom}
               onSelectRoom={setSelectedRoom}
               devices={devices}
+              customRooms={customRooms}
+              onOpenAddRoomModal={() => setIsAddRoomModalOpen(true)}
             />
 
             {/* Device Cards Grid */}
@@ -723,6 +815,18 @@ export default function App() {
                 </h3>
 
                 <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => setIsEditMode(!isEditMode)}
+                    className={`text-xs font-bold px-3 py-1 rounded-full border transition cursor-pointer flex items-center gap-1.5 ${
+                      isEditMode
+                        ? 'bg-amber-400 text-slate-950 border-amber-300 shadow-md'
+                        : 'bg-white/5 hover:bg-white/10 text-slate-300 border-white/10'
+                    }`}
+                  >
+                    <Move className="w-3.5 h-3.5" />
+                    <span>{isEditMode ? 'Fine Modifica' : 'Modifica Layout'}</span>
+                  </button>
+
                   {deviceOrder.length > 0 && (
                     <button
                       onClick={handleResetDeviceOrder}
@@ -775,11 +879,15 @@ export default function App() {
                           isDragging ? 'opacity-40 scale-95 border-2 border-dashed border-amber-400' : ''
                         } ${
                           isDragOver ? 'ring-2 ring-amber-400 scale-[1.02] shadow-2xl z-20' : ''
+                        } ${
+                          isEditMode ? 'animate-pulse ring-1 ring-amber-400/40' : ''
                         }`}
                       >
                         {/* Drag Handle Overlay Badge */}
                         <div
-                          className="absolute top-2 left-2 z-30 opacity-0 group-hover/drag:opacity-100 transition-opacity bg-black/70 backdrop-blur-md p-1 rounded-lg border border-white/20 text-slate-300 cursor-grab active:cursor-grabbing hover:text-amber-400 shadow-md"
+                          className={`absolute top-2 left-2 z-30 transition-opacity bg-black/75 backdrop-blur-md p-1 rounded-lg border border-white/20 text-slate-300 cursor-grab active:cursor-grabbing hover:text-amber-400 shadow-md ${
+                            isEditMode ? 'opacity-100' : 'opacity-0 group-hover/drag:opacity-100'
+                          }`}
                           title="Trascina per spostare la card"
                         >
                           <GripVertical className="w-4 h-4" />
@@ -801,7 +909,21 @@ export default function App() {
           </div>
         )}
 
-        {/* TAB 2: Automations */}
+        {/* TAB 2: Rooms View */}
+        {activeTab === 'rooms' && (
+          <RoomsTab
+            devices={devices}
+            customRooms={customRooms}
+            onTogglePower={handleTogglePower}
+            onUpdateState={handleUpdateDeviceState}
+            onClickDetail={(d) => setSelectedDevice(d)}
+            onOpenAddRoomModal={() => setIsAddRoomModalOpen(true)}
+            onTurnOffRoom={handleTurnOffRoom}
+            onTurnOnRoom={handleTurnOnRoom}
+          />
+        )}
+
+        {/* TAB 3: Automations */}
         {activeTab === 'automations' && (
           <AutomationsTab
             automations={automations}
@@ -831,10 +953,15 @@ export default function App() {
           />
         )}
 
-        {/* TAB 3: Energy */}
-        {activeTab === 'energy' && <EnergyTab devices={devices} />}
+        {/* TAB 4: Energy */}
+        {activeTab === 'energy' && (
+          <EnergyTab 
+            devices={devices} 
+            onTogglePower={handleTogglePower}
+          />
+        )}
 
-        {/* TAB 4: AI Assistant */}
+        {/* TAB 5: AI Assistant */}
         {activeTab === 'ai' && (
           <div className="bg-[#121214] border border-white/5 rounded-3xl p-6 shadow-xl max-w-3xl mx-auto space-y-4">
             <div className="flex items-center gap-3 border-b border-white/5 pb-4">
@@ -870,6 +997,7 @@ export default function App() {
         onClose={() => setSelectedDevice(null)}
         onUpdateDevice={handleUpdateDevice}
         onDeleteDevice={handleDeleteDevice}
+        availableRooms={Array.from(new Set([...customRooms, ...devices.map((d) => d.room).filter(Boolean)]))}
       />
 
       <SmartLifeTransferModal
@@ -897,6 +1025,14 @@ export default function App() {
           showToast(`Dispositivo "${newDev.name}" aggiunto.`);
           await saveDeviceToDb(newDev);
         }}
+      />
+
+      <AddRoomModal
+        isOpen={isAddRoomModalOpen}
+        onClose={() => setIsAddRoomModalOpen(false)}
+        onAddRoom={handleAddRoom}
+        devices={devices}
+        existingRooms={Array.from(new Set([...customRooms, ...devices.map((d) => d.room).filter(Boolean)]))}
       />
 
       <WallpaperModal

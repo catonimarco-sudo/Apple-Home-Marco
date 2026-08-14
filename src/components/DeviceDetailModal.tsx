@@ -33,7 +33,8 @@ import {
   Wind,
   Plug,
   Key,
-  Video
+  Video,
+  ChevronDown
 } from 'lucide-react';
 
 // Helper function to compress and resize custom uploaded icons to 300x300 max
@@ -82,6 +83,7 @@ interface DeviceDetailModalProps {
   onClose: () => void;
   onUpdateDevice: (updated: SmartDevice) => void;
   onDeleteDevice: (deviceId: string) => void;
+  availableRooms?: string[];
 }
 
 export const DeviceDetailModal: React.FC<DeviceDetailModalProps> = ({
@@ -89,6 +91,7 @@ export const DeviceDetailModal: React.FC<DeviceDetailModalProps> = ({
   onClose,
   onUpdateDevice,
   onDeleteDevice,
+  availableRooms = [],
 }) => {
   const [activeTab, setActiveTab] = useState<'control' | 'edit' | 'schedule' | 'info'>('control');
   const [timerMinutes, setTimerMinutes] = useState<number>(30);
@@ -97,6 +100,13 @@ export const DeviceDetailModal: React.FC<DeviceDetailModalProps> = ({
   // Editable Fields
   const [editName, setEditName] = useState<string>(device?.name || '');
   const [editRoom, setEditRoom] = useState<string>(device?.room || '');
+
+  // Computed all known rooms
+  const allKnownRooms = React.useMemo(() => {
+    const defaults = ['Salotto', 'Cucina', 'Camera da Letto', 'Bagno', 'Studio', 'Ingresso', 'Giardino', 'Garage'];
+    const list = Array.from(new Set([...defaults, ...availableRooms, device?.room || ''])).filter(Boolean);
+    return list;
+  }, [availableRooms, device?.room]);
   const [editCategory, setEditCategory] = useState<SmartDevice['category']>(device?.category || 'plug');
   const [editVendor, setEditVendor] = useState<string>(device?.vendor || '');
   const [editTuyaId, setEditTuyaId] = useState<string>(device?.tuyaDeviceId || '');
@@ -727,14 +737,69 @@ export const DeviceDetailModal: React.FC<DeviceDetailModalProps> = ({
                 </div>
 
                 <div>
-                  <label className="text-slate-300 font-bold block mb-1">Stanza / Ubicazione</label>
-                  <input
-                    type="text"
-                    value={editRoom}
-                    onChange={(e) => setEditRoom(e.target.value)}
-                    placeholder="es. Salotto, Cucina, Bagno"
-                    className="w-full bg-[#121214] border border-white/10 px-3 py-2 rounded-xl text-white font-medium focus:border-emerald-500 focus:outline-none"
-                  />
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="text-slate-300 font-bold block">Stanza / Ubicazione</label>
+                    <span className="text-[10px] text-amber-400 font-medium">Scegli a tendina o digita</span>
+                  </div>
+
+                  <div className="space-y-2">
+                    {/* Dropdown with all existing rooms */}
+                    <div className="relative">
+                      <select
+                        value={allKnownRooms.includes(editRoom) ? editRoom : '__custom__'}
+                        onChange={(e) => {
+                          if (e.target.value !== '__custom__') {
+                            setEditRoom(e.target.value);
+                          }
+                        }}
+                        className="w-full bg-[#121214] border border-white/10 px-3 py-2 rounded-xl text-white font-medium focus:border-emerald-500 focus:outline-none cursor-pointer appearance-none pr-8 text-xs"
+                      >
+                        <option value="" disabled>-- Seleziona una Stanza Esistente --</option>
+                        {allKnownRooms.map((r) => (
+                          <option key={r} value={r}>
+                            {r}
+                          </option>
+                        ))}
+                        <option value="__custom__">✏️ Inserisci / Modifica testo libero...</option>
+                      </select>
+                      <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center px-2.5 text-slate-400">
+                        <ChevronDown className="w-4 h-4" />
+                      </div>
+                    </div>
+
+                    {/* Direct text input with datalist auto-complete */}
+                    <input
+                      type="text"
+                      list="modal-existing-rooms-list"
+                      value={editRoom}
+                      onChange={(e) => setEditRoom(e.target.value)}
+                      placeholder="es. Salotto, Cucina, Bagno, Smart Home..."
+                      className="w-full bg-[#121214] border border-white/10 px-3 py-2 rounded-xl text-white font-medium focus:border-emerald-500 focus:outline-none placeholder-slate-600 text-xs"
+                    />
+                    <datalist id="modal-existing-rooms-list">
+                      {allKnownRooms.map((r) => (
+                        <option key={r} value={r} />
+                      ))}
+                    </datalist>
+
+                    {/* Quick selection tags */}
+                    <div className="flex flex-wrap gap-1">
+                      {allKnownRooms.slice(0, 7).map((r) => (
+                        <button
+                          key={r}
+                          type="button"
+                          onClick={() => setEditRoom(r)}
+                          className={`px-2 py-0.5 rounded-md text-[10px] font-bold transition cursor-pointer border ${
+                            editRoom === r
+                              ? 'bg-amber-400 text-slate-950 border-amber-300'
+                              : 'bg-white/5 text-slate-400 border-white/10 hover:bg-white/10 hover:text-white'
+                          }`}
+                        >
+                          {r}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
                 </div>
 
                 <div>

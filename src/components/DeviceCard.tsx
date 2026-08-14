@@ -521,33 +521,13 @@ export const DeviceCard: React.FC<DeviceCardProps> = ({
     }
   })();
 
-  // Apple Home Subtitle status text
+  // Apple Home Subtitle status text: Simple ON or OFF
   const getStatusText = () => {
     if (!isPowerOn) {
-      if (category === 'lock') return 'Bloccata (OFF)';
       return 'OFF';
     }
-
-    if (category === 'light' && state.light) {
-      return state.light.brightness ? `${state.light.brightness}%` : 'ON';
-    }
-    if (category === 'plug' && state.plug) {
-      return state.plug.watts ? `${state.plug.watts} W` : 'ON';
-    }
-    if (category === 'thermostat' && state.thermostat) {
+    if (category === 'thermostat' && state.thermostat?.targetTemp) {
       return `${state.thermostat.targetTemp}°C`;
-    }
-    if (category === 'lock') {
-      return 'Sbloccata (ON)';
-    }
-    if (category === 'sensor') {
-      return state.sensor?.triggered ? 'Allarme' : 'OK';
-    }
-    if (category === 'vacuum') {
-      return state.vacuum?.status === 'cleaning' ? 'In pulizia' : 'OFF';
-    }
-    if (category === 'gate' || category === 'pulsed_switch') {
-      return isPowerOn ? 'In apertura...' : 'OFF';
     }
     return 'ON';
   };
@@ -691,14 +671,14 @@ export const DeviceCard: React.FC<DeviceCardProps> = ({
             e.stopPropagation();
             onClickDetail(device);
           }}
-          className={`p-1 rounded-full transition-colors ${
+          className={`p-1 rounded-full transition-colors cursor-pointer ${
             isPowerOn 
               ? 'text-slate-400 hover:text-slate-700 hover:bg-slate-100' 
               : 'text-white/60 hover:text-white hover:bg-white/10'
           }`}
           title="Impostazioni e Dettagli"
         >
-          <Settings className="w-3.5 h-3.5" />
+          <Settings className="w-4 h-4" />
         </button>
       </div>
 
@@ -709,8 +689,10 @@ export const DeviceCard: React.FC<DeviceCardProps> = ({
         }`}>
           {name}
         </p>
-        <p className={`text-[11px] mt-0.5 font-semibold ${
-          isPowerOn ? 'text-slate-500' : 'text-slate-300/80'
+        <p className={`text-[11px] mt-0.5 font-bold uppercase tracking-wider ${
+          isPowerOn 
+            ? 'text-amber-600 dark:text-amber-500' 
+            : 'text-slate-400'
         }`}>
           {getStatusText()}
         </p>
