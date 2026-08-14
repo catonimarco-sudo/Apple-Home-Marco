@@ -2,24 +2,13 @@ import React, { useState } from 'react';
 import { 
   X, 
   Plus, 
-  Home, 
-  Tv, 
-  Utensils, 
-  Bed, 
-  Bath, 
-  Trees, 
-  Warehouse, 
-  Monitor, 
-  DoorOpen, 
-  Coffee, 
-  Flame, 
-  Waves, 
-  Sun, 
-  Sparkles, 
   FolderPlus,
-  Check
+  Check,
+  Upload,
+  Image as ImageIcon
 } from 'lucide-react';
 import { SmartDevice, RoomName } from '../types';
+import { ROOM_ICONS_LIST, PRESET_ROOM_WALLPAPERS } from './RoomSettingsModal';
 
 interface AddRoomModalProps {
   isOpen: boolean;
@@ -27,24 +16,8 @@ interface AddRoomModalProps {
   existingRooms?: string[];
   devices?: SmartDevice[];
   availableDevices?: SmartDevice[];
-  onAddRoom: (roomName: string, iconName: string, assignedDeviceIds: string[]) => void;
+  onAddRoom: (roomName: string, iconName: string, assignedDeviceIds: string[], wallpaperUrl?: string) => void;
 }
-
-const AVAILABLE_ICONS = [
-  { id: 'Home', label: 'Casa', icon: <Home className="w-5 h-5" /> },
-  { id: 'Tv', label: 'Salotto / TV', icon: <Tv className="w-5 h-5" /> },
-  { id: 'Utensils', label: 'Cucina', icon: <Utensils className="w-5 h-5" /> },
-  { id: 'Bed', label: 'Camera', icon: <Bed className="w-5 h-5" /> },
-  { id: 'Bath', label: 'Bagno', icon: <Bath className="w-5 h-5" /> },
-  { id: 'Monitor', label: 'Studio / Ufficio', icon: <Monitor className="w-5 h-5" /> },
-  { id: 'DoorOpen', label: 'Ingresso / Corridoio', icon: <DoorOpen className="w-5 h-5" /> },
-  { id: 'Trees', label: 'Giardino / Terrazzo', icon: <Trees className="w-5 h-5" /> },
-  { id: 'Warehouse', label: 'Garage / Cantina', icon: <Warehouse className="w-5 h-5" /> },
-  { id: 'Coffee', label: 'Zona Relax / Bar', icon: <Coffee className="w-5 h-5" /> },
-  { id: 'Flame', label: 'Taverna / Camino', icon: <Flame className="w-5 h-5" /> },
-  { id: 'Waves', label: 'Piscina / Spa', icon: <Waves className="w-5 h-5" /> },
-  { id: 'Sun', label: 'Balcone / Solarium', icon: <Sun className="w-5 h-5" /> },
-];
 
 export const AddRoomModal: React.FC<AddRoomModalProps> = ({
   isOpen,
@@ -57,10 +30,24 @@ export const AddRoomModal: React.FC<AddRoomModalProps> = ({
   const allDeviceList = devices.length > 0 ? devices : availableDevices;
   const [roomName, setRoomName] = useState('');
   const [selectedIcon, setSelectedIcon] = useState('Home');
+  const [wallpaperUrl, setWallpaperUrl] = useState('');
   const [selectedDeviceIds, setSelectedDeviceIds] = useState<string[]>([]);
   const [errorMsg, setErrorMsg] = useState('');
 
   if (!isOpen) return null;
+
+  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        if (reader.result) {
+          setWallpaperUrl(reader.result as string);
+        }
+      };
+      reader.readAsDataURL(file);
+    }
+  };
 
   const handleToggleDevice = (id: string) => {
     setSelectedDeviceIds((prev) =>
@@ -81,8 +68,10 @@ export const AddRoomModal: React.FC<AddRoomModalProps> = ({
       return;
     }
 
-    onAddRoom(cleanName, selectedIcon, selectedDeviceIds);
+    onAddRoom(cleanName, selectedIcon, selectedDeviceIds, wallpaperUrl);
     setRoomName('');
+    setSelectedIcon('Home');
+    setWallpaperUrl('');
     setSelectedDeviceIds([]);
     setErrorMsg('');
     onClose();
@@ -102,7 +91,7 @@ export const AddRoomModal: React.FC<AddRoomModalProps> = ({
             </div>
             <div>
               <h3 className="text-lg font-bold text-white font-sans tracking-tight">Nuova Stanza</h3>
-              <p className="text-xs text-slate-400">Aggiungi e organizza i dispositivi come in Apple Home</p>
+              <p className="text-xs text-slate-400">Aggiungi e personalizza icona, sfondo e dispositivi</p>
             </div>
           </div>
           <button
@@ -142,15 +131,15 @@ export const AddRoomModal: React.FC<AddRoomModalProps> = ({
               <label className="block text-xs font-bold text-slate-300 uppercase tracking-wider mb-2">
                 Icona Stanza (Stile Apple Home)
               </label>
-              <div className="grid grid-cols-4 sm:grid-cols-6 gap-2 max-h-36 overflow-y-auto pr-1 no-scrollbar">
-                {AVAILABLE_ICONS.map((ico) => {
+              <div className="grid grid-cols-4 sm:grid-cols-5 gap-2 max-h-32 overflow-y-auto pr-1 no-scrollbar">
+                {ROOM_ICONS_LIST.map((ico) => {
                   const isSelected = selectedIcon === ico.id;
                   return (
                     <button
                       key={ico.id}
                       type="button"
                       onClick={() => setSelectedIcon(ico.id)}
-                      className={`p-2.5 rounded-2xl flex flex-col items-center justify-center gap-1 border transition cursor-pointer ${
+                      className={`p-2 rounded-2xl flex flex-col items-center justify-center gap-1 border transition cursor-pointer ${
                         isSelected
                           ? 'bg-amber-400 text-slate-950 border-amber-300 font-bold shadow-lg shadow-amber-400/20 scale-105'
                           : 'bg-white/5 border-white/10 text-slate-300 hover:bg-white/10 hover:text-white'
@@ -165,6 +154,61 @@ export const AddRoomModal: React.FC<AddRoomModalProps> = ({
               </div>
             </div>
 
+            {/* Wallpaper Selection (Optional) */}
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <label className="block text-xs font-bold text-slate-300 uppercase tracking-wider">
+                  Sfondo Stanza (Opzionale)
+                </label>
+                {wallpaperUrl && (
+                  <button
+                    type="button"
+                    onClick={() => setWallpaperUrl('')}
+                    className="text-[10px] text-amber-400 hover:underline cursor-pointer"
+                  >
+                    Rimuovi
+                  </button>
+                )}
+              </div>
+
+              {wallpaperUrl && (
+                <div className="relative h-20 w-full rounded-2xl overflow-hidden border border-amber-400/50 shadow-inner">
+                  <img src={wallpaperUrl} alt="Room Wallpaper" className="w-full h-full object-cover" />
+                  <div className="absolute inset-0 bg-black/40 p-2 flex items-center justify-center">
+                    <span className="text-xs font-bold text-white drop-shadow">✓ Sfondo Selezionato</span>
+                  </div>
+                </div>
+              )}
+
+              <div className="flex items-center gap-2">
+                <label className="flex-1 bg-white/5 hover:bg-white/10 text-slate-300 text-xs font-semibold px-3 py-2 rounded-xl border border-white/10 transition cursor-pointer flex items-center justify-center gap-1.5">
+                  <Upload className="w-3.5 h-3.5 text-amber-400" />
+                  <span>Carica Foto...</span>
+                  <input
+                    type="file"
+                    accept="image/*"
+                    className="hidden"
+                    onChange={handleFileUpload}
+                  />
+                </label>
+              </div>
+
+              <div className="grid grid-cols-4 gap-1.5">
+                {PRESET_ROOM_WALLPAPERS.slice(0, 4).map((preset) => (
+                  <button
+                    key={preset.id}
+                    type="button"
+                    onClick={() => setWallpaperUrl(preset.url)}
+                    className={`relative h-12 rounded-xl overflow-hidden border transition cursor-pointer ${
+                      wallpaperUrl === preset.url ? 'border-amber-400 ring-1 ring-amber-400' : 'border-white/10 opacity-70 hover:opacity-100'
+                    }`}
+                  >
+                    <img src={preset.url} alt={preset.name} className="w-full h-full object-cover" />
+                  </button>
+                ))}
+              </div>
+            </div>
+
             {/* Assign Devices Option */}
             <div>
               <div className="flex items-center justify-between mb-2">
@@ -173,7 +217,7 @@ export const AddRoomModal: React.FC<AddRoomModalProps> = ({
                 </label>
                 <span className="text-[10px] text-slate-400">Opzionale</span>
               </div>
-              <div className="bg-black/30 border border-white/10 rounded-2xl p-2 max-h-36 overflow-y-auto space-y-1.5 no-scrollbar">
+              <div className="bg-black/30 border border-white/10 rounded-2xl p-2 max-h-32 overflow-y-auto space-y-1.5 no-scrollbar">
                 {allDeviceList.length === 0 ? (
                   <p className="text-xs text-slate-500 p-2 text-center">Nessun dispositivo disponibile.</p>
                 ) : (

@@ -1,5 +1,5 @@
 import React, { useState, useRef } from 'react';
-import { SmartDevice, RoomName } from '../types';
+import { SmartDevice, RoomName, RoomConfig } from '../types';
 import { DeviceCard } from './DeviceCard';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
@@ -21,20 +21,58 @@ import {
   ChevronLeft,
   Sparkles,
   Layers,
-  Edit3
+  Edit3,
+  Sliders,
+  Dumbbell,
+  Car,
+  BookOpen,
+  Music,
+  Wind,
+  Shield,
+  Coffee,
+  Flame,
+  Waves,
+  Sun,
+  Image as ImageIcon
 } from 'lucide-react';
 
 interface RoomsTabProps {
   devices: SmartDevice[];
   customRooms?: string[];
+  deletedRooms?: string[];
+  roomConfigs?: Record<string, RoomConfig>;
   onTogglePower: (device: SmartDevice) => void;
   onUpdateState: (deviceId: string, newState: Partial<SmartDevice['state']>) => void;
   onClickDetail: (device: SmartDevice) => void;
   onDeleteDevice?: (id: string) => void;
   onOpenAddRoomModal: () => void;
+  onOpenRoomSettings?: (roomName: string) => void;
   onTurnOffRoom?: (roomName: string) => void;
   onTurnOnRoom?: (roomName: string) => void;
 }
+
+const ICON_MAP: Record<string, React.ReactNode> = {
+  'Home': <Home className="w-5 h-5" />,
+  'Tv': <Tv className="w-5 h-5" />,
+  'Utensils': <Utensils className="w-5 h-5" />,
+  'Bed': <Bed className="w-5 h-5" />,
+  'Bath': <Bath className="w-5 h-5" />,
+  'Monitor': <Monitor className="w-5 h-5" />,
+  'DoorOpen': <DoorOpen className="w-5 h-5" />,
+  'Trees': <Trees className="w-5 h-5" />,
+  'Warehouse': <Warehouse className="w-5 h-5" />,
+  'Coffee': <Coffee className="w-5 h-5" />,
+  'Flame': <Flame className="w-5 h-5" />,
+  'Waves': <Waves className="w-5 h-5" />,
+  'Sun': <Sun className="w-5 h-5" />,
+  'Dumbbell': <Dumbbell className="w-5 h-5" />,
+  'Car': <Car className="w-5 h-5" />,
+  'BookOpen': <BookOpen className="w-5 h-5" />,
+  'Music': <Music className="w-5 h-5" />,
+  'Wind': <Wind className="w-5 h-5" />,
+  'Shield': <Shield className="w-5 h-5" />,
+  'Sparkles': <Sparkles className="w-5 h-5" />,
+};
 
 const DEFAULT_ROOM_ICONS: Record<string, React.ReactNode> = {
   'Salotto': <Tv className="w-5 h-5" />,
@@ -50,21 +88,24 @@ const DEFAULT_ROOM_ICONS: Record<string, React.ReactNode> = {
 export const RoomsTab: React.FC<RoomsTabProps> = ({
   devices,
   customRooms = [],
+  deletedRooms = [],
+  roomConfigs = {},
   onTogglePower,
   onUpdateState,
   onClickDetail,
   onDeleteDevice,
   onOpenAddRoomModal,
+  onOpenRoomSettings,
   onTurnOffRoom,
   onTurnOnRoom,
 }) => {
-  // Aggregate all unique room names (excluding 'Tutti')
+  // Aggregate all unique room names (excluding 'Tutti' and deleted rooms)
   const allRooms = React.useMemo(() => {
     const base = ['Salotto', 'Cucina', 'Camera da Letto', 'Bagno', 'Studio', 'Ingresso', 'Giardino', 'Garage'];
     const fromDevices = devices.map((d) => d.room).filter(Boolean);
     const combined = Array.from(new Set([...base, ...customRooms, ...fromDevices]));
-    return combined;
-  }, [devices, customRooms]);
+    return combined.filter((r) => !deletedRooms.includes(r));
+  }, [devices, customRooms, deletedRooms]);
 
   const [activeRoomView, setActiveRoomView] = useState<string | 'all'>('all');
   const [swipeDirection, setSwipeDirection] = useState<'left' | 'right'>('left');
@@ -88,7 +129,7 @@ export const RoomsTab: React.FC<RoomsTabProps> = ({
         // Swipe Left -> Next room
         setSwipeDirection('left');
         if (activeRoomView === 'all') {
-          setActiveRoomView(allRooms[0]);
+          if (allRooms.length > 0) setActiveRoomView(allRooms[0]);
         } else {
           const currentIdx = allRooms.indexOf(activeRoomView);
           if (currentIdx < allRooms.length - 1) {
@@ -101,7 +142,7 @@ export const RoomsTab: React.FC<RoomsTabProps> = ({
         // Swipe Right -> Prev room
         setSwipeDirection('right');
         if (activeRoomView === 'all') {
-          setActiveRoomView(allRooms[allRooms.length - 1]);
+          if (allRooms.length > 0) setActiveRoomView(allRooms[allRooms.length - 1]);
         } else {
           const currentIdx = allRooms.indexOf(activeRoomView);
           if (currentIdx > 0) {
@@ -118,7 +159,23 @@ export const RoomsTab: React.FC<RoomsTabProps> = ({
   };
 
   const getRoomIcon = (name: string) => {
+    if (roomConfigs[name]?.iconName && ICON_MAP[roomConfigs[name].iconName!]) {
+      return ICON_MAP[roomConfigs[name].iconName!];
+    }
     if (DEFAULT_ROOM_ICONS[name]) return DEFAULT_ROOM_ICONS[name];
+    const lower = name.toLowerCase();
+    if (lower.includes('cucina')) return <Utensils className="w-5 h-5" />;
+    if (lower.includes('camera') || lower.includes('letto')) return <Bed className="w-5 h-5" />;
+    if (lower.includes('bagno')) return <Bath className="w-5 h-5" />;
+    if (lower.includes('salotto') || lower.includes('tv') || lower.includes('soggiorno')) return <Tv className="w-5 h-5" />;
+    if (lower.includes('giardino') || lower.includes('terrazz')) return <Trees className="w-5 h-5" />;
+    if (lower.includes('garage') || lower.includes('cantina') || lower.includes('box')) return <Warehouse className="w-5 h-5" />;
+    if (lower.includes('studio') || lower.includes('ufficio') || lower.includes('pc')) return <Monitor className="w-5 h-5" />;
+    if (lower.includes('balcone') || lower.includes('solarium')) return <Sun className="w-5 h-5" />;
+    if (lower.includes('piscina') || lower.includes('spa')) return <Waves className="w-5 h-5" />;
+    if (lower.includes('taverna') || lower.includes('camino')) return <Flame className="w-5 h-5" />;
+    if (lower.includes('relax') || lower.includes('bar')) return <Coffee className="w-5 h-5" />;
+    if (lower.includes('palestra')) return <Dumbbell className="w-5 h-5" />;
     return <Home className="w-5 h-5" />;
   };
 
@@ -263,14 +320,27 @@ export const RoomsTab: React.FC<RoomsTabProps> = ({
         >
           {roomsToDisplay.map((roomName) => {
             const stats = getRoomStats(roomName);
+            const roomConfig = roomConfigs[roomName];
+            const wallpaper = roomConfig?.wallpaperUrl;
 
             return (
               <div
                 key={roomName}
-                className="bg-black/25 backdrop-blur-xl border border-white/10 rounded-[28px] p-5 sm:p-6 space-y-4 shadow-xl relative overflow-hidden"
+                className="bg-black/30 backdrop-blur-xl border border-white/15 rounded-[28px] p-5 sm:p-6 space-y-4 shadow-xl relative overflow-hidden group/card"
               >
+                {/* Optional Room Wallpaper Background Layer */}
+                {wallpaper && (
+                  <>
+                    <div 
+                      className="absolute inset-0 bg-cover bg-center opacity-25 group-hover/card:opacity-35 transition-opacity duration-300 pointer-events-none scale-105"
+                      style={{ backgroundImage: `url(${wallpaper})` }}
+                    />
+                    <div className="absolute inset-0 bg-gradient-to-t from-slate-950 via-slate-950/80 to-slate-950/50 pointer-events-none" />
+                  </>
+                )}
+
                 {/* Room Card Top Header */}
-                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-white/10">
+                <div className="relative z-10 flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-white/10">
                   <div className="flex items-center gap-3">
                     <div className="p-2.5 rounded-2xl bg-amber-400/15 border border-amber-400/30 text-amber-400">
                       {getRoomIcon(roomName)}
@@ -281,6 +351,11 @@ export const RoomsTab: React.FC<RoomsTabProps> = ({
                         <span className="text-[11px] font-mono bg-white/10 px-2.5 py-0.5 rounded-full text-slate-300 border border-white/10">
                           {stats.totalCount} Dispositivi
                         </span>
+                        {wallpaper && (
+                          <span className="text-[10px] font-mono bg-amber-400/20 text-amber-300 px-2 py-0.5 rounded-full border border-amber-400/30">
+                            Sfondo Dedicato
+                          </span>
+                        )}
                       </div>
                       <div className="flex items-center gap-3 text-xs text-slate-400 mt-0.5">
                         <span className="flex items-center gap-1 text-amber-300">
@@ -305,8 +380,18 @@ export const RoomsTab: React.FC<RoomsTabProps> = ({
                     </div>
                   </div>
 
-                  {/* Quick Batch Actions for Room */}
-                  <div className="flex items-center gap-2 self-end sm:self-auto">
+                  {/* Quick Batch Actions & Customization for Room */}
+                  <div className="flex items-center gap-2 self-end sm:self-auto flex-wrap">
+                    {onOpenRoomSettings && (
+                      <button
+                        onClick={() => onOpenRoomSettings(roomName)}
+                        className="px-3 py-1.5 rounded-full bg-white/10 hover:bg-white/20 text-slate-200 hover:text-amber-300 text-xs font-semibold border border-white/15 transition cursor-pointer flex items-center gap-1.5"
+                        title="Personalizza sfondo, icona o elimina questa stanza"
+                      >
+                        <Sliders className="w-3.5 h-3.5 text-amber-400" />
+                        <span>Personalizza</span>
+                      </button>
+                    )}
                     {onTurnOnRoom && (
                       <button
                         onClick={() => onTurnOnRoom(roomName)}
@@ -327,24 +412,34 @@ export const RoomsTab: React.FC<RoomsTabProps> = ({
                 </div>
 
                 {/* Device Cards Grid for this Room */}
-                {stats.devices.length === 0 ? (
-                  <div className="py-8 text-center bg-black/20 rounded-2xl border border-dashed border-white/10">
-                    <p className="text-xs text-slate-400">Nessun dispositivo assegnato a questa stanza.</p>
-                  </div>
-                ) : (
-                  <div className="grid grid-cols-2 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3 sm:gap-4">
-                    {stats.devices.map((dev) => (
-                      <DeviceCard
-                        key={dev.id}
-                        device={dev}
-                        onTogglePower={onTogglePower}
-                        onUpdateState={onUpdateState}
-                        onClickDetail={onClickDetail}
-                        onDeleteDevice={onDeleteDevice}
-                      />
-                    ))}
-                  </div>
-                )}
+                <div className="relative z-10">
+                  {stats.devices.length === 0 ? (
+                    <div className="py-8 text-center bg-black/30 rounded-2xl border border-dashed border-white/10">
+                      <p className="text-xs text-slate-400">Nessun dispositivo assegnato a questa stanza.</p>
+                      {onOpenRoomSettings && (
+                        <button
+                          onClick={() => onOpenRoomSettings(roomName)}
+                          className="mt-2 text-xs text-amber-400 hover:underline font-semibold"
+                        >
+                          Assegna dispositivi o modifica stanza →
+                        </button>
+                      )}
+                    </div>
+                  ) : (
+                    <div className="grid grid-cols-2 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3 sm:gap-4">
+                      {stats.devices.map((dev) => (
+                        <DeviceCard
+                          key={dev.id}
+                          device={dev}
+                          onTogglePower={onTogglePower}
+                          onUpdateState={onUpdateState}
+                          onClickDetail={onClickDetail}
+                          onDeleteDevice={onDeleteDevice}
+                        />
+                      ))}
+                    </div>
+                  )}
+                </div>
               </div>
             );
           })}

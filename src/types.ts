@@ -29,6 +29,15 @@ export interface CustomRoomInfo {
   order?: number;
 }
 
+export interface RoomConfig {
+  name: string;
+  iconName?: string;
+  customImageUrl?: string;
+  wallpaperUrl?: string;
+  color?: string;
+  order?: number;
+}
+
 export type DeviceVendor = 'Smart Life (Tuya)' | 'Zigbee Gateway' | 'SmartLife Hub' | 'Local Wi-Fi';
 
 export interface DevicePlugState {

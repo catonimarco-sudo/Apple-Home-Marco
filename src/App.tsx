@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
-import { SmartDevice, AutomationRule, RoomName } from './types';
+import { SmartDevice, AutomationRule, RoomName, RoomConfig } from './types';
 import { INITIAL_DEVICES, INITIAL_AUTOMATIONS } from './data/mockDevices';
 import { Navbar } from './components/Navbar';
 import { RoomFilter } from './components/RoomFilter';
@@ -12,6 +12,7 @@ import { RoomsTab } from './components/RoomsTab';
 import { AIAssistantDrawer } from './components/AIAssistantDrawer';
 import { AddDeviceModal } from './components/AddDeviceModal';
 import { AddRoomModal } from './components/AddRoomModal';
+import { RoomSettingsModal } from './components/RoomSettingsModal';
 import { WallpaperModal } from './components/WallpaperModal';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
@@ -71,12 +72,34 @@ export default function App() {
     }
   });
 
+  // Deleted Rooms list (persisted in localStorage)
+  const [deletedRooms, setDeletedRooms] = useState<string[]>(() => {
+    try {
+      const saved = localStorage.getItem('smartlife_hub_deleted_rooms');
+      return saved ? JSON.parse(saved) : [];
+    } catch {
+      return [];
+    }
+  });
+
+  // Room Configurations (icons & dedicated wallpapers)
+  const [roomConfigs, setRoomConfigs] = useState<Record<string, RoomConfig>>(() => {
+    try {
+      const saved = localStorage.getItem('smartlife_hub_room_configs');
+      return saved ? JSON.parse(saved) : {};
+    } catch {
+      return {};
+    }
+  });
+
   // Modals & Drawers
   const [selectedDevice, setSelectedDevice] = useState<SmartDevice | null>(null);
   const [isTransferModalOpen, setIsTransferModalOpen] = useState<boolean>(false);
   const [isAiDrawerOpen, setIsAiDrawerOpen] = useState<boolean>(false);
   const [isAddDeviceModalOpen, setIsAddDeviceModalOpen] = useState<boolean>(false);
   const [isAddRoomModalOpen, setIsAddRoomModalOpen] = useState<boolean>(false);
+  const [isRoomSettingsModalOpen, setIsRoomSettingsModalOpen] = useState<boolean>(false);
+  const [editingRoomName, setEditingRoomName] = useState<string>('');
   const [isWallpaperModalOpen, setIsWallpaperModalOpen] = useState<boolean>(false);
   const [wallpaperUrl, setWallpaperUrl] = useState<string>(() => {
     return localStorage.getItem('smartlife_hub_wallpaper') || '';
@@ -552,11 +575,28 @@ export default function App() {
   };
 
   // Custom Room Handlers
-  const handleAddRoom = async (newRoomName: string, _iconName: string, assignedDeviceIds: string[]) => {
+  const handleAddRoom = async (newRoomName: string, iconName: string, assignedDeviceIds: string[], roomWallpaperUrl?: string) => {
     const updatedCustom = Array.from(new Set([...customRooms, newRoomName]));
     setCustomRooms(updatedCustom);
+    
+    // Remove from deletedRooms if it was previously deleted
+    const updatedDeleted = deletedRooms.filter((r) => r.toLowerCase() !== newRoomName.toLowerCase());
+    setDeletedRooms(updatedDeleted);
+
+    const updatedConfigs: Record<string, RoomConfig> = {
+      ...roomConfigs,
+      [newRoomName]: {
+        name: newRoomName,
+        iconName: iconName || 'Home',
+        wallpaperUrl: roomWallpaperUrl || '',
+      },
+    };
+    setRoomConfigs(updatedConfigs);
+
     try {
       localStorage.setItem('smartlife_hub_custom_rooms', JSON.stringify(updatedCustom));
+      localStorage.setItem('smartlife_hub_deleted_rooms', JSON.stringify(updatedDeleted));
+      localStorage.setItem('smartlife_hub_room_configs', JSON.stringify(updatedConfigs));
     } catch (e) {
       console.warn('Could not persist custom rooms:', e);
     }
@@ -571,6 +611,115 @@ export default function App() {
     }
 
     showToast(`Stanza "${newRoomName}" creata con successo!`);
+  };
+
+  const handleSaveRoomConfig = async (originalName: string, newConfig: RoomConfig, assignedDeviceIds: string[]) => {
+    const nameChanged = originalName !== newConfig.name;
+
+    // 1. Update customRooms & deletedRooms
+    let updatedCustom = [...customRooms];
+    if (nameChanged) {
+      updatedCustom = updatedCustom.map((r) => (r === originalName ? newConfig.name : r));
+      if (!updatedCustom.includes(newConfig.name)) {
+        updatedCustom.push(newConfig.name);
+      }
+    }
+    setCustomRooms(updatedCustom);
+
+    // 2. Update roomConfigs mapping
+    const updatedConfigs: Record<string, RoomConfig> = { ...roomConfigs };
+    if (nameChanged) {
+      delete updatedConfigs[originalName];
+    }
+    updatedConfigs[newConfig.name] = newConfig;
+    setRoomConfigs(updatedConfigs);
+
+    // 3. Update device room assignments
+    const updatedDevices = devices.map((d) => {
+      const isAssigned = assignedDeviceIds.includes(d.id);
+      const wasInThisRoom = d.room === originalName;
+      if (isAssigned) {
+        return { ...d, room: newConfig.name as RoomName };
+      } else if (wasInThisRoom) {
+        return { ...d, room: 'Senza Stanza' as RoomName };
+      }
+      return d;
+    });
+    setDevices(updatedDevices);
+
+    // 4. Update selectedRoom if currently viewing renamed room
+    if (selectedRoom === originalName) {
+      setSelectedRoom(newConfig.name as RoomName);
+    }
+
+    // 5. Persist to localStorage
+    try {
+      localStorage.setItem('smartlife_hub_custom_rooms', JSON.stringify(updatedCustom));
+      localStorage.setItem('smartlife_hub_room_configs', JSON.stringify(updatedConfigs));
+    } catch (err) {
+      console.warn('LocalStorage save error:', err);
+    }
+
+    // 6. Sync updated devices to Cloud DB
+    const changedDevices = updatedDevices.filter((d) => assignedDeviceIds.includes(d.id) || (d.room === ('Senza Stanza' as RoomName) && devices.find(x => x.id === d.id)?.room === originalName));
+    if (changedDevices.length > 0) {
+      await saveBatchDevicesToDb(changedDevices);
+    }
+
+    showToast(`Stanza "${newConfig.name}" personalizzata con successo!`);
+  };
+
+  const handleDeleteRoom = async (roomToDelete: string) => {
+    // 1. Add to deletedRooms
+    const updatedDeleted = Array.from(new Set([...deletedRooms, roomToDelete]));
+    setDeletedRooms(updatedDeleted);
+
+    // 2. Remove from customRooms
+    const updatedCustom = customRooms.filter((r) => r !== roomToDelete);
+    setCustomRooms(updatedCustom);
+
+    // 3. Clean up roomConfigs
+    const updatedConfigs = { ...roomConfigs };
+    delete updatedConfigs[roomToDelete];
+    setRoomConfigs(updatedConfigs);
+
+    // 4. Reassign devices that were in this room
+    const affectedDeviceIds: string[] = [];
+    const updatedDevices = devices.map((d) => {
+      if (d.room === roomToDelete) {
+        affectedDeviceIds.push(d.id);
+        return { ...d, room: 'Senza Stanza' as RoomName };
+      }
+      return d;
+    });
+    setDevices(updatedDevices);
+
+    // 5. If user was on deleted room, reset to 'Tutti'
+    if (selectedRoom === roomToDelete) {
+      setSelectedRoom('Tutti');
+    }
+
+    // 6. Save to localStorage
+    try {
+      localStorage.setItem('smartlife_hub_deleted_rooms', JSON.stringify(updatedDeleted));
+      localStorage.setItem('smartlife_hub_custom_rooms', JSON.stringify(updatedCustom));
+      localStorage.setItem('smartlife_hub_room_configs', JSON.stringify(updatedConfigs));
+    } catch (e) {
+      console.warn('LocalStorage error on room deletion:', e);
+    }
+
+    // 7. Save affected devices to Firestore DB
+    if (affectedDeviceIds.length > 0) {
+      const changed = updatedDevices.filter((d) => affectedDeviceIds.includes(d.id));
+      await saveBatchDevicesToDb(changed);
+    }
+
+    showToast(`Stanza "${roomToDelete}" eliminata.`);
+  };
+
+  const handleOpenRoomSettings = (roomName: string) => {
+    setEditingRoomName(roomName);
+    setIsRoomSettingsModalOpen(true);
   };
 
   const handleTurnOffRoom = async (roomName: string) => {
@@ -647,12 +796,14 @@ export default function App() {
     return list;
   }, [devices, selectedRoom, searchQuery, deviceOrder]);
 
-  // Aggregate all unique room names
+  // Aggregate all unique room names (filtering out deleted rooms)
   const allRoomsList = useMemo(() => {
     const base = ['Tutti', 'Salotto', 'Cucina', 'Camera da Letto', 'Bagno', 'Studio', 'Ingresso', 'Giardino', 'Garage'];
     const fromDevices = devices.map((d) => d.room).filter(Boolean);
-    return Array.from(new Set([...base, ...customRooms, ...fromDevices]));
-  }, [devices, customRooms]);
+    const combined = Array.from(new Set([...base, ...customRooms, ...fromDevices]));
+    const deletedSet = new Set(deletedRooms.map((r) => r.toLowerCase()));
+    return combined.filter((r) => r === 'Tutti' || !deletedSet.has(r.toLowerCase()));
+  }, [devices, customRooms, deletedRooms]);
 
   const currentRoomIndex = allRoomsList.indexOf(selectedRoom);
   const [swipeDirection, setSwipeDirection] = useState<'left' | 'right'>('left');
@@ -738,14 +889,17 @@ export default function App() {
     return sum;
   }, 0);
 
+  // Dedicated room wallpaper takes priority over global wallpaper when in room view
+  const activeBackgroundWallpaper = (selectedRoom !== 'Tutti' && roomConfigs[selectedRoom]?.wallpaperUrl) || wallpaperUrl;
+
   return (
     <div 
       className="min-h-screen bg-[#080b11] text-slate-100 font-sans selection:bg-amber-400 selection:text-slate-950 relative overflow-x-hidden bg-cover bg-center bg-fixed transition-all duration-300"
-      style={wallpaperUrl ? { backgroundImage: `url(${wallpaperUrl})` } : {}}
+      style={activeBackgroundWallpaper ? { backgroundImage: `url(${activeBackgroundWallpaper})` } : {}}
     >
       {/* Background Ambient Overlay or Orbs */}
-      {wallpaperUrl ? (
-        <div className="fixed inset-0 bg-black/40 backdrop-blur-[2px] pointer-events-none" />
+      {activeBackgroundWallpaper ? (
+        <div className="fixed inset-0 bg-black/45 backdrop-blur-[2px] pointer-events-none" />
       ) : (
         <>
           <div className="fixed top-0 left-1/4 w-[500px] h-[500px] bg-amber-500/10 rounded-full blur-[140px] pointer-events-none" />
@@ -877,7 +1031,10 @@ export default function App() {
               onSelectRoom={setSelectedRoom}
               devices={devices}
               customRooms={customRooms}
+              deletedRooms={deletedRooms}
+              roomConfigs={roomConfigs}
               onOpenAddRoomModal={() => setIsAddRoomModalOpen(true)}
+              onOpenRoomSettings={handleOpenRoomSettings}
             />
 
             {/* Device Cards Grid with Room Swipe Controls */}
@@ -1052,10 +1209,13 @@ export default function App() {
           <RoomsTab
             devices={devices}
             customRooms={customRooms}
+            deletedRooms={deletedRooms}
+            roomConfigs={roomConfigs}
             onTogglePower={handleTogglePower}
             onUpdateState={handleUpdateDeviceState}
             onClickDetail={(d) => setSelectedDevice(d)}
             onOpenAddRoomModal={() => setIsAddRoomModalOpen(true)}
+            onOpenRoomSettings={handleOpenRoomSettings}
             onTurnOffRoom={handleTurnOffRoom}
             onTurnOnRoom={handleTurnOnRoom}
           />
@@ -1135,7 +1295,7 @@ export default function App() {
         onClose={() => setSelectedDevice(null)}
         onUpdateDevice={handleUpdateDevice}
         onDeleteDevice={handleDeleteDevice}
-        availableRooms={Array.from(new Set([...customRooms, ...devices.map((d) => d.room).filter(Boolean)]))}
+        availableRooms={allRoomsList.filter(r => r !== 'Tutti')}
       />
 
       <SmartLifeTransferModal
@@ -1170,7 +1330,20 @@ export default function App() {
         onClose={() => setIsAddRoomModalOpen(false)}
         onAddRoom={handleAddRoom}
         devices={devices}
-        existingRooms={Array.from(new Set([...customRooms, ...devices.map((d) => d.room).filter(Boolean)]))}
+        existingRooms={allRoomsList.filter(r => r !== 'Tutti')}
+      />
+
+      <RoomSettingsModal
+        isOpen={isRoomSettingsModalOpen}
+        onClose={() => setIsRoomSettingsModalOpen(false)}
+        roomName={editingRoomName}
+        devices={devices}
+        roomConfig={roomConfigs[editingRoomName]}
+        existingConfig={roomConfigs[editingRoomName]}
+        onSaveRoomConfig={handleSaveRoomConfig}
+        onSaveConfig={handleSaveRoomConfig}
+        onDeleteRoom={handleDeleteRoom}
+        allRooms={allRoomsList.filter(r => r !== 'Tutti')}
       />
 
       <WallpaperModal
