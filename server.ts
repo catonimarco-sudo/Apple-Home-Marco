@@ -8,6 +8,7 @@ import tuyaCommandHandler from "./api/tuya-command.js";
 import tuyaSyncHandler from "./api/tuya-sync.js";
 import tuyaStreamHandler from "./api/tuya-stream.js";
 import triggerHandler from "./api/trigger.js";
+import siriHandler from "./api/siri.js";
 
 dotenv.config();
 
@@ -285,6 +286,11 @@ app.all("/api/tuya/stream", tuyaStreamHandler);
 
 // Endpoint: Dedicated API Route for Siri Shortcuts & CarPlay
 app.all("/api/trigger", triggerHandler);
+
+// Endpoint: Dedicated Serverless API Route for Siri Shortcuts, Voice Control & Webhooks
+app.all("/api/siri", siriHandler);
+app.all("/api/siri/control", siriHandler);
+app.all("/api/shortcut", siriHandler);
 
 // Endpoint: Gemini Smart Home AI Assistant
 app.post("/api/ai/assistant", async (req, res) => {
