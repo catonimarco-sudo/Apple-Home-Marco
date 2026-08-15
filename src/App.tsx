@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
-import { SmartDevice, AutomationRule, RoomName, RoomConfig } from './types';
+import { SmartDevice, AutomationRule, RoomName, RoomConfig, isWideDeviceCard } from './types';
 import { INITIAL_DEVICES, INITIAL_AUTOMATIONS } from './data/mockDevices';
 import { Navbar } from './components/Navbar';
 import { RoomFilter } from './components/RoomFilter';
@@ -1274,7 +1274,7 @@ export default function App() {
                     {filteredDevices.map((dev) => {
                       const isDragging = draggedDeviceId === dev.id;
                       const isDragOver = dragOverDeviceId === dev.id;
-                      const isCamera = dev.category === 'camera' || dev.customIcon === 'camera' || dev.name.toLowerCase().includes('telecamera') || dev.name.toLowerCase().includes('camera');
+                      const isWide = isWideDeviceCard(dev);
 
                       return (
                         <div
@@ -1286,7 +1286,7 @@ export default function App() {
                           onDrop={(e) => handleDrop(e, dev.id)}
                           onDragEnd={handleDragEnd}
                           className={`relative group/drag transition-all duration-200 rounded-[26px] ${
-                            isCamera ? 'col-span-full' : ''
+                            isWide ? 'col-span-full' : ''
                           } ${
                             isDragging ? 'opacity-40 scale-95 border-2 border-dashed border-amber-400' : ''
                           } ${

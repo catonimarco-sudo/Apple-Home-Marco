@@ -1,5 +1,5 @@
 import React, { useState, useRef } from 'react';
-import { SmartDevice, RoomName, RoomConfig } from '../types';
+import { SmartDevice, RoomName, RoomConfig, isWideDeviceCard } from '../types';
 import { DeviceCard } from './DeviceCard';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
@@ -429,17 +429,21 @@ export const RoomsTab: React.FC<RoomsTabProps> = ({
                     </div>
                   ) : (
                     <div className="grid grid-cols-2 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3 sm:gap-4">
-                      {stats.devices.map((dev) => (
-                        <DeviceCard
-                          key={dev.id}
-                          device={dev}
-                          onTogglePower={onTogglePower}
-                          onUpdateState={onUpdateState}
-                          onClickDetail={onClickDetail}
-                          onDeleteDevice={onDeleteDevice}
-                          onToggleChannel={onToggleChannel}
-                        />
-                      ))}
+                      {stats.devices.map((dev) => {
+                        const isWide = isWideDeviceCard(dev);
+                        return (
+                          <div key={dev.id} className={isWide ? 'col-span-full' : ''}>
+                            <DeviceCard
+                              device={dev}
+                              onTogglePower={onTogglePower}
+                              onUpdateState={onUpdateState}
+                              onClickDetail={onClickDetail}
+                              onDeleteDevice={onDeleteDevice}
+                              onToggleChannel={onToggleChannel}
+                            />
+                          </div>
+                        );
+                      })}
                     </div>
                   )}
                 </div>

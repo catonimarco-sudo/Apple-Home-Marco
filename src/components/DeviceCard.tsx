@@ -61,11 +61,15 @@ const IrrigationCard: React.FC<{
   const activeCount = [isZone1, isZone2, isZone3, isZone4].filter(Boolean).length;
   const isAnyActive = activeCount > 0;
 
+  // Derive schedule info if present
+  const schedules = device.schedules || [];
+  const getChannelSchedule = (dp: string) => schedules.find((s) => s.channel === dp && s.enabled);
+
   const channels = [
-    { dpCode: 'switch_1', num: 1, name: 'Lato Cancellone', active: isZone1 },
-    { dpCode: 'switch_2', num: 2, name: 'Centrale', active: isZone2 },
-    { dpCode: 'switch_3', num: 3, name: 'Lato Cancelletto', active: isZone3 },
-    { dpCode: 'switch_4', num: 4, name: 'Switch 4', active: isZone4 },
+    { dpCode: 'switch_1', num: 1, name: 'Lato Cancellone', active: isZone1, schedule: getChannelSchedule('switch_1') },
+    { dpCode: 'switch_2', num: 2, name: 'Centrale', active: isZone2, schedule: getChannelSchedule('switch_2') },
+    { dpCode: 'switch_3', num: 3, name: 'Lato Cancelletto', active: isZone3, schedule: getChannelSchedule('switch_3') },
+    { dpCode: 'switch_4', num: 4, name: 'Switch 4', active: isZone4, schedule: getChannelSchedule('switch_4') },
   ];
 
   const handleToggle = (dpCode: string, currentVal: boolean) => {
@@ -112,53 +116,57 @@ const IrrigationCard: React.FC<{
 
   return (
     <div
-      className={`group relative p-3.5 rounded-[24px] flex flex-col justify-between transition-all duration-200 select-none shadow-md ${
+      className={`group relative p-4 sm:p-5 rounded-[24px] flex flex-col justify-between transition-all duration-200 select-none shadow-lg ${
         isAnyActive
-          ? 'bg-[#121c24] border border-cyan-500/40 text-white shadow-cyan-950/40'
-          : 'bg-black/25 backdrop-blur-md border border-white/15 text-white'
+          ? 'bg-gradient-to-br from-[#0c1c28] to-[#0a1520] border border-cyan-500/40 text-white shadow-cyan-950/40'
+          : 'bg-black/30 backdrop-blur-md border border-white/15 text-white'
       }`}
     >
-      {/* Top Header: Icon, Device Title, Zone Status & Controls */}
-      <div className="flex items-start justify-between gap-2 pb-2.5 border-b border-white/10">
-        <div className="flex items-center gap-2.5 min-w-0">
+      {/* Top Header: Icon, Device Title, Zone Status & Quick Controls */}
+      <div className="flex items-center justify-between gap-3 pb-3 border-b border-white/10">
+        <div className="flex items-center gap-3 min-w-0">
           <div
-            className={`w-9 h-9 rounded-full flex items-center justify-center transition-all ${
+            className={`w-10 h-10 rounded-full flex items-center justify-center transition-all shrink-0 ${
               isAnyActive
-                ? 'bg-cyan-400 text-slate-950 shadow-md shadow-cyan-400/30'
+                ? 'bg-cyan-400 text-slate-950 shadow-md shadow-cyan-400/40 animate-pulse'
                 : 'bg-white/10 border border-white/10 text-cyan-400'
             }`}
           >
-            <Droplets className={`w-5 h-5 ${isAnyActive ? 'fill-slate-950 text-slate-950 animate-pulse' : 'fill-cyan-400 text-cyan-400'}`} />
+            <Droplets className={`w-5 h-5 ${isAnyActive ? 'fill-slate-950 text-slate-950' : 'fill-cyan-400 text-cyan-400'}`} />
           </div>
           <div className="min-w-0">
-            <h4 className="font-bold text-xs leading-snug truncate text-white">
-              {device.name}
-            </h4>
-            <div className="flex items-center gap-1.5 mt-0.5">
-              <span className={`text-[10px] font-extrabold uppercase tracking-wider ${
+            <div className="flex items-center gap-2 flex-wrap">
+              <h4 className="font-bold text-sm sm:text-base leading-snug truncate text-white">
+                {device.name}
+              </h4>
+              <span className="text-[10px] font-mono bg-cyan-500/20 text-cyan-300 border border-cyan-500/30 px-2 py-0.5 rounded-full">
+                4CH Tuya
+              </span>
+            </div>
+            <div className="flex items-center gap-2 mt-0.5">
+              <span className={`text-xs font-black uppercase tracking-wider flex items-center gap-1.5 ${
                 isAnyActive ? 'text-cyan-300' : 'text-slate-400'
               }`}>
-                {isAnyActive ? `${activeCount} su 4 Attive` : 'Tutte Spente'}
-              </span>
-              <span className="text-[9px] bg-white/10 text-slate-300 px-1.5 py-0.2 rounded font-mono">
-                4CH Tuya
+                <span className={`w-2 h-2 rounded-full ${isAnyActive ? 'bg-cyan-400 animate-ping' : 'bg-slate-500'}`} />
+                {isAnyActive ? `${activeCount} di 4 Zone in Irrigazione` : 'Tutte le zone spente'}
               </span>
             </div>
           </div>
         </div>
 
-        <div className="flex items-center gap-1">
+        <div className="flex items-center gap-2 shrink-0">
           <button
             type="button"
             onClick={handleMasterToggle}
-            className={`px-2 py-0.5 rounded-lg text-[10px] font-bold transition cursor-pointer ${
+            className={`px-3 py-1.5 rounded-xl text-xs font-bold transition cursor-pointer flex items-center gap-1.5 ${
               isAnyActive
-                ? 'bg-rose-500/20 text-rose-300 hover:bg-rose-500/30 border border-rose-500/30'
-                : 'bg-cyan-500/20 text-cyan-300 hover:bg-cyan-500/30 border border-cyan-500/30'
+                ? 'bg-rose-500/20 text-rose-300 hover:bg-rose-500/30 border border-rose-500/40 shadow-sm'
+                : 'bg-cyan-500/20 text-cyan-300 hover:bg-cyan-500/30 border border-cyan-500/40 shadow-sm'
             }`}
-            title={isAnyActive ? 'Spegni tutte le 4 zone' : 'Attiva tutte le 4 zone'}
+            title={isAnyActive ? 'Spegni tutte le 4 zone contemporaneamente' : 'Attiva tutte le 4 zone contemporaneamente'}
           >
-            {isAnyActive ? 'Tutte OFF' : 'Tutte ON'}
+            <Power className="w-3.5 h-3.5" />
+            <span>{isAnyActive ? 'Spegni Tutto' : 'Accendi Tutto'}</span>
           </button>
 
           <button
@@ -167,16 +175,16 @@ const IrrigationCard: React.FC<{
               e.stopPropagation();
               onClickDetail(device);
             }}
-            className="p-1 rounded-full text-white/60 hover:text-white hover:bg-white/10 transition cursor-pointer"
-            title="Impostazioni e Timer"
+            className="p-2 rounded-xl text-white/70 hover:text-white hover:bg-white/10 border border-white/10 transition cursor-pointer"
+            title="Programmazioni orari e Timer zone"
           >
             <Settings className="w-4 h-4" />
           </button>
         </div>
       </div>
 
-      {/* 4 Channel Buttons in 2x2 Grid */}
-      <div className="grid grid-cols-2 gap-2 mt-2.5">
+      {/* 4 Channel Buttons in Full Horizontal Grid (2x2 on mobile, 4x1 on desktop) */}
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 sm:gap-3.5 mt-3.5">
         {channels.map((ch) => (
           <button
             key={ch.dpCode}
@@ -185,36 +193,43 @@ const IrrigationCard: React.FC<{
               e.stopPropagation();
               handleToggle(ch.dpCode, ch.active);
             }}
-            className={`group/btn relative p-2.5 rounded-xl border text-left flex flex-col justify-between transition-all duration-150 cursor-pointer active:scale-95 ${
+            className={`group/btn relative p-3 sm:p-3.5 rounded-2xl border text-left flex flex-col justify-between transition-all duration-150 cursor-pointer active:scale-95 min-h-[96px] ${
               ch.active
-                ? 'bg-cyan-500/25 border-cyan-400 text-white shadow-md shadow-cyan-900/30'
+                ? 'bg-gradient-to-b from-cyan-500/30 to-cyan-600/20 border-cyan-400 text-white shadow-md shadow-cyan-900/40 ring-1 ring-cyan-400/50'
                 : 'bg-white/5 hover:bg-white/10 border-white/10 text-slate-300 hover:text-white'
             }`}
           >
-            <div className="flex items-center justify-between w-full mb-1">
-              <span className="text-[9px] font-mono font-bold text-cyan-300">
+            <div className="flex items-center justify-between w-full mb-2">
+              <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded-md bg-black/40 border border-white/10 text-cyan-300">
                 CH {ch.num} • {ch.dpCode}
               </span>
               <div
-                className={`w-5 h-5 rounded-full flex items-center justify-center transition-all ${
+                className={`w-6 h-6 rounded-full flex items-center justify-center transition-all ${
                   ch.active
-                    ? 'bg-cyan-400 text-slate-950 shadow-sm'
-                    : 'bg-white/10 text-slate-400 group-hover/btn:text-white'
+                    ? 'bg-cyan-400 text-slate-950 shadow-md shadow-cyan-400/50'
+                    : 'bg-white/10 text-slate-400 group-hover/btn:text-white group-hover/btn:bg-white/20'
                 }`}
               >
-                <Power className="w-3 h-3" />
+                <Power className="w-3.5 h-3.5 font-bold" />
               </div>
             </div>
 
             <div className="w-full">
-              <p className="font-bold text-xs truncate leading-tight text-white">
+              <p className="font-bold text-xs sm:text-sm leading-tight text-white line-clamp-2">
                 {ch.name}
               </p>
-              <span className={`text-[10px] font-black uppercase tracking-wider block mt-0.5 ${
-                ch.active ? 'text-cyan-300 font-extrabold' : 'text-slate-400'
-              }`}>
-                {ch.active ? 'ON' : 'OFF'}
-              </span>
+              <div className="flex items-center justify-between mt-1">
+                <span className={`text-[10px] font-black uppercase tracking-wider ${
+                  ch.active ? 'text-cyan-300 font-extrabold' : 'text-slate-400'
+                }`}>
+                  {ch.active ? '● IRRIGAZIONE ON' : 'SPENTO'}
+                </span>
+                {ch.schedule && (
+                  <span className="text-[9px] text-amber-300/90 font-mono">
+                    ⏱ {ch.schedule.time}
+                  </span>
+                )}
+              </div>
             </div>
           </button>
         ))}

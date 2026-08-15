@@ -221,3 +221,50 @@ export interface ChatMessage {
     payload?: any;
   };
 }
+
+export function isCameraDevice(device: SmartDevice): boolean {
+  return Boolean(
+    device.category === 'camera' ||
+    device.customIcon === 'camera' ||
+    device.name.toLowerCase().includes('telecamera') ||
+    device.name.toLowerCase().includes('camera')
+  );
+}
+
+export function isMultiButtonDevice(device: SmartDevice): boolean {
+  const name = device.name.toLowerCase();
+  const icon = (device.customIcon || '').toLowerCase();
+  const cat = device.category;
+  const switchState = device.state?.switch;
+
+  if (
+    name.includes('irrigaz') ||
+    name.includes('solenoide') ||
+    icon === 'droplet' ||
+    icon === 'irrigation'
+  ) {
+    return true;
+  }
+
+  if (cat === 'switch' || icon === 'switch' || icon === 'power') {
+    if (switchState?.gangs && switchState.gangs.length > 1) return true;
+    if (switchState?.channelStates && Object.keys(switchState.channelStates).length > 1) return true;
+  }
+
+  if (
+    name.includes('4ch') ||
+    name.includes('4-channel') ||
+    name.includes('4 canali') ||
+    name.includes('2ch') ||
+    name.includes('3ch') ||
+    name.includes('multicanale')
+  ) {
+    return true;
+  }
+
+  return false;
+}
+
+export function isWideDeviceCard(device: SmartDevice): boolean {
+  return isCameraDevice(device) || isMultiButtonDevice(device);
+}
