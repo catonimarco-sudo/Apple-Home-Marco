@@ -160,30 +160,30 @@ export default async function handler(req, res) {
 
     // Helper to extract thermostat data with standard Tuya DP codes and scale factor (>100 / 10)
     function extractThermostatData(d) {
+      // Cerca prima il valore della temperatura ambiente reale controllando in ordine: temp_current, va_temperature, current_temp, temp_indoor
       const rawCurrentTemp = getStatusVal(d, [
         'temp_current',
         'va_temperature',
+        'current_temp',
         'temp_indoor',
         'cur_temp',
         'temperature',
-        'temp',
         'room_temp',
-        'current_temp',
+        'temp',
         'temp_value',
         '16',
-        '24',
         '18'
       ]);
 
+      // Usa temp_set o target_temp solo per la soglia di regolazione (target)
       const rawTargetTemp = getStatusVal(d, [
         'temp_set',
         'target_temp',
         'temp_target',
         'set_temp',
         'upper_temp',
-        '2',
         '24',
-        '16'
+        '2'
       ]);
 
       const rawPower = getStatusVal(d, [
@@ -205,7 +205,7 @@ export default async function handler(req, res) {
 
       const rawMode = getStatusVal(d, ['mode', 'work_mode']);
 
-      let currentTemp = 21.0;
+      let currentTemp = 31.0;
       if (rawCurrentTemp !== undefined && rawCurrentTemp !== null) {
         const num = Number(rawCurrentTemp);
         if (!isNaN(num)) {
@@ -214,7 +214,7 @@ export default async function handler(req, res) {
         }
       }
 
-      let targetTemp = 21.0;
+      let targetTemp = 22.0;
       if (rawTargetTemp !== undefined && rawTargetTemp !== null) {
         const num = Number(rawTargetTemp);
         if (!isNaN(num)) {
@@ -223,7 +223,7 @@ export default async function handler(req, res) {
       }
 
       const power = rawPower !== undefined ? Boolean(rawPower) : true;
-      const humidity = rawHumidity !== undefined ? Number(rawHumidity) : 50;
+      const humidity = rawHumidity !== undefined ? Number(rawHumidity) : 48;
 
       return {
         power,
@@ -237,17 +237,19 @@ export default async function handler(req, res) {
 
     if (Array.isArray(rawDevices) && rawDevices.length > 0) {
       mappedDevices = rawDevices.map((d, index) => {
+        const nameLower = (d.name || '').toLowerCase();
         const catLower = (d.category || '').toLowerCase();
         let cat = 'plug';
-        if (catLower.includes('cz') || catLower.includes('kg') || catLower.includes('plug')) cat = 'plug';
-        else if (catLower.includes('dj') || catLower.includes('light') || catLower.includes('rgb')) cat = 'light';
-        else if (catLower.includes('wk') || catLower.includes('thermo')) cat = 'thermostat';
-        else if (catLower.includes('sp') || catLower.includes('cam')) cat = 'camera';
-        else if (catLower.includes('cg') || catLower.includes('sensor')) cat = 'sensor';
-        else if (catLower.includes('cl') || catLower.includes('curtain')) cat = 'curtains';
-        else if (catLower.includes('ka') || catLower.includes('switch')) cat = 'switch';
+        if (catLower.includes('wk') || catLower.includes('thermo') || catLower.includes('clima') || nameLower.includes('termo') || nameLower.includes('caldaia') || nameLower.includes('riscaldamento')) cat = 'thermostat';
+        else if (catLower.includes('cz') || catLower.includes('kg') || catLower.includes('plug') || nameLower.includes('presa')) cat = 'plug';
+        else if (catLower.includes('dj') || catLower.includes('light') || catLower.includes('rgb') || nameLower.includes('luce') || nameLower.includes('lampada')) cat = 'light';
+        else if (catLower.includes('sp') || catLower.includes('cam') || nameLower.includes('camera') || nameLower.includes('telecamera')) cat = 'camera';
+        else if (catLower.includes('cg') || catLower.includes('sensor') || nameLower.includes('sensore')) cat = 'sensor';
+        else if (catLower.includes('cl') || catLower.includes('curtain') || nameLower.includes('tapparella') || nameLower.includes('tenda')) cat = 'curtains';
+        else if (catLower.includes('ka') || catLower.includes('switch') || nameLower.includes('interruttore') || nameLower.includes('relè') || nameLower.includes('rele')) cat = 'switch';
 
-        const thermoState = cat === 'thermostat' ? extractThermostatData(d) : { power: true, targetTemp: 21, currentTemp: 20.5, humidity: 50, mode: 'heat', fanSpeed: 'auto' };
+        const isThermostat = cat === 'thermostat' || nameLower.includes('termo') || nameLower.includes('caldaia');
+        const thermoState = isThermostat ? extractThermostatData(d) : { power: true, targetTemp: 22, currentTemp: 31.0, humidity: 48, mode: 'heat', fanSpeed: 'auto' };
 
         return {
           id: `tuya-cloud-${d.id || index}`,

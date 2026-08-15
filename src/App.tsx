@@ -146,6 +146,61 @@ export default function App() {
     };
   }, []);
 
+  // Background Schedule Engine (Local / Cloud Timer Dispatcher)
+  const lastExecutedSchedulesRef = useRef<Record<string, string>>({}); // scheduleId -> "YYYY-MM-DD-HH:MM"
+
+  useEffect(() => {
+    const timerInterval = setInterval(() => {
+      const now = new Date();
+      const hours = String(now.getHours()).padStart(2, '0');
+      const minutes = String(now.getMinutes()).padStart(2, '0');
+      const currentTimeStr = `${hours}:${minutes}`;
+      const dayIndex = now.getDay(); // 0 = Sun, 1 = Mon ...
+      const dayMap: Record<number, string> = {
+        0: 'Dom',
+        1: 'Lun',
+        2: 'Mar',
+        3: 'Mer',
+        4: 'Gio',
+        5: 'Ven',
+        6: 'Sab',
+      };
+      const currentDayCode = dayMap[dayIndex] || 'Lun';
+      const dateKey = `${now.getFullYear()}-${now.getMonth() + 1}-${now.getDate()}-${currentTimeStr}`;
+
+      devices.forEach((dev) => {
+        if (!dev.schedules || dev.schedules.length === 0) return;
+
+        dev.schedules.forEach((sc) => {
+          if (!sc.enabled) return;
+          if (sc.time !== currentTimeStr) return;
+          if (sc.days && sc.days.length > 0 && !sc.days.includes(currentDayCode)) return;
+
+          // Check if already executed in this minute
+          if (lastExecutedSchedulesRef.current[sc.id] === dateKey) return;
+          lastExecutedSchedulesRef.current[sc.id] = dateKey;
+
+          // Execute action
+          console.log(`[Schedule Engine] Executing schedule ${sc.id} for device ${dev.name}: ${sc.action ? 'ON' : 'OFF'} on channel ${sc.channel || 'default'}`);
+
+          if (sc.channel && (sc.channel.startsWith('switch_') || sc.channel.startsWith('button_'))) {
+            handleToggleChannel(dev, sc.channel, sc.action);
+          } else {
+            // Main device power
+            const currentP = dev.state.plug?.power ?? dev.state.light?.power ?? dev.state.switch?.power ?? false;
+            if (currentP !== sc.action) {
+              handleTogglePower(dev);
+            }
+          }
+
+          showToast(`⏰ Timer eseguito: ${dev.name} ${sc.action ? 'Acceso (ON)' : 'Spento (OFF)'}`);
+        });
+      });
+    }, 10000); // check every 10 seconds
+
+    return () => clearInterval(timerInterval);
+  }, [devices]);
+
   const showToast = (msg: string, duration = 3000) => {
     setToastMessage(msg);
     const timeoutDuration = msg.includes('⚠️') || msg.length > 50 ? 6500 : duration;
@@ -397,6 +452,88 @@ export default function App() {
       }
     } else {
       showToast(`Stato di "${device.name}" aggiornato (${commandValue ? 'Acceso' : 'Spento'}).`);
+    }
+  };
+
+  const handleToggleChannel = async (device: SmartDevice, channelDp: string, nextValue?: boolean) => {
+    const dpMap: Record<string, number> = { switch_1: 0, switch_2: 1, switch_3: 2, switch_4: 3 };
+    const idx = dpMap[channelDp] !== undefined ? dpMap[channelDp] : 0;
+
+    const currentGangs = device.state.switch?.gangs && device.state.switch.gangs.length >= 4
+      ? [...device.state.switch.gangs]
+      : [
+          Boolean(device.state.switch?.channelStates?.switch_1 ?? device.state.switch?.gangs?.[0]),
+          Boolean(device.state.switch?.channelStates?.switch_2 ?? device.state.switch?.gangs?.[1]),
+          Boolean(device.state.switch?.channelStates?.switch_3 ?? device.state.switch?.gangs?.[2]),
+          Boolean(device.state.switch?.channelStates?.switch_4 ?? device.state.switch?.gangs?.[3]),
+        ];
+
+    const currentVal = currentGangs[idx] ?? false;
+    const targetVal = nextValue !== undefined ? nextValue : !currentVal;
+    currentGangs[idx] = targetVal;
+
+    const currentChannelStates = {
+      ...(device.state.switch?.channelStates || {}),
+      switch_1: currentGangs[0],
+      switch_2: currentGangs[1],
+      switch_3: currentGangs[2],
+      switch_4: currentGangs[3],
+      [channelDp]: targetVal,
+    };
+
+    const newDev: SmartDevice = {
+      ...device,
+      state: {
+        ...device.state,
+        switch: {
+          ...(device.state.switch || { power: false, gangs: [false, false, false, false] }),
+          gangs: currentGangs,
+          channelStates: currentChannelStates,
+          power: currentGangs.some(Boolean),
+        },
+      },
+    };
+
+    // 1. Immediate UI update
+    setDevices((prev) => prev.map((item) => (item.id === device.id ? newDev : item)));
+    if (selectedDevice?.id === device.id) {
+      setSelectedDevice(newDev);
+    }
+
+    // Persist immediately to Firestore DB
+    try {
+      await saveDeviceToDb(newDev);
+    } catch (dbErr) {
+      console.warn('Firestore sync warning:', dbErr);
+    }
+
+    // 2. Dispatch real Tuya Cloud OpenAPI command via /api/tuya-command
+    const zoneLabels: Record<string, string> = {
+      switch_1: 'Lato Cancellone',
+      switch_2: 'Centrale',
+      switch_3: 'Lato Cancelletto',
+      switch_4: 'Switch 4',
+    };
+    const zoneLabel = zoneLabels[channelDp] || channelDp;
+
+    const tuyaId = device.tuyaDeviceId || device.id;
+    if (tuyaId) {
+      try {
+        const res = await sendTuyaCommand(tuyaId, channelDp, targetVal, undefined, {
+          category: 'switch',
+          dpCode: channelDp,
+          deviceName: device.name,
+        });
+        if (res.success) {
+          showToast(`Tuya ${zoneLabel}: ${targetVal ? 'Acceso' : 'Spento'}`);
+        } else {
+          showToast(`${zoneLabel}: ${targetVal ? 'Acceso' : 'Spento'}`);
+        }
+      } catch (err: any) {
+        showToast(`${zoneLabel}: ${targetVal ? 'Acceso' : 'Spento'}`);
+      }
+    } else {
+      showToast(`${zoneLabel}: ${targetVal ? 'Acceso' : 'Spento'}`);
     }
   };
 
@@ -1174,6 +1311,7 @@ export default function App() {
                             onUpdateState={handleUpdateDeviceState}
                             onClickDetail={(d) => setSelectedDevice(d)}
                             onDeleteDevice={handleDeleteDevice}
+                            onToggleChannel={handleToggleChannel}
                           />
                         </div>
                       );
@@ -1199,6 +1337,7 @@ export default function App() {
             onOpenRoomSettings={handleOpenRoomSettings}
             onTurnOffRoom={handleTurnOffRoom}
             onTurnOnRoom={handleTurnOnRoom}
+            onToggleChannel={handleToggleChannel}
           />
         )}
 
@@ -1278,6 +1417,7 @@ export default function App() {
         onDeleteDevice={handleDeleteDevice}
         availableRooms={allRoomsList.filter(r => r !== 'Tutti')}
         onTogglePower={handleTogglePower}
+        onToggleChannel={handleToggleChannel}
       />
 
       <SmartLifeTransferModal

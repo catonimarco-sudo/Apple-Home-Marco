@@ -49,6 +49,7 @@ interface RoomsTabProps {
   onOpenRoomSettings?: (roomName: string) => void;
   onTurnOffRoom?: (roomName: string) => void;
   onTurnOnRoom?: (roomName: string) => void;
+  onToggleChannel?: (device: SmartDevice, channelDp: string, nextValue?: boolean) => void;
 }
 
 const ICON_MAP: Record<string, React.ReactNode> = {
@@ -98,6 +99,7 @@ export const RoomsTab: React.FC<RoomsTabProps> = ({
   onOpenRoomSettings,
   onTurnOffRoom,
   onTurnOnRoom,
+  onToggleChannel,
 }) => {
   // Aggregate all unique room names (excluding 'Tutti' and deleted rooms)
   const allRooms = React.useMemo(() => {
@@ -435,6 +437,7 @@ export const RoomsTab: React.FC<RoomsTabProps> = ({
                           onUpdateState={onUpdateState}
                           onClickDetail={onClickDetail}
                           onDeleteDevice={onDeleteDevice}
+                          onToggleChannel={onToggleChannel}
                         />
                       ))}
                     </div>

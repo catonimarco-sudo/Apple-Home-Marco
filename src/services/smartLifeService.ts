@@ -14,7 +14,16 @@ function mapTuyaCategory(categoryCode?: string, name?: string): DeviceCategory {
   if (code === 'dj' || code === 'tgq' || code === 'dd' || lowerName.includes('lamp') || lowerName.includes('luce') || lowerName.includes('led') || lowerName.includes('bulb')) {
     return 'light';
   }
-  if (code === 'wk' || lowerName.includes('termostato') || lowerName.includes('caldaia') || lowerName.includes('thermostat') || lowerName.includes('clima')) {
+  if (
+    code === 'wk' ||
+    lowerName.includes('termo') ||
+    lowerName.includes('termosifoni') ||
+    lowerName.includes('termosifone') ||
+    lowerName.includes('caldaia') ||
+    lowerName.includes('thermostat') ||
+    lowerName.includes('clima') ||
+    lowerName.includes('riscaldamento')
+  ) {
     return 'thermostat';
   }
   if (code === 'sp' || lowerName.includes('camera') || lowerName.includes('telecamera') || lowerName.includes('cam')) {
@@ -94,11 +103,35 @@ export function parseSmartLifeJsonBackup(jsonString: string): ImportResult {
           mode: 'color',
         };
       } else if (cat === 'thermostat') {
-        const rawCurrent = item.dps?.['16'] ?? item.dps?.['temp_current'] ?? item.dps?.['va_temperature'] ?? item.dps?.['temp_indoor'] ?? item.dps?.['cur_temp'] ?? item.temp_current ?? item.va_temperature ?? item.currentTemp ?? 21.0;
+        const rawCurrent =
+          item.dps?.['temp_current'] ??
+          item.dps?.['va_temperature'] ??
+          item.dps?.['current_temp'] ??
+          item.dps?.['temp_indoor'] ??
+          item.temp_current ??
+          item.va_temperature ??
+          item.current_temp ??
+          item.temp_indoor ??
+          item.dps?.['cur_temp'] ??
+          item.dps?.['16'] ??
+          item.dps?.['18'] ??
+          item.currentTemp ??
+          31.0;
         const numCurrent = Number(rawCurrent);
-        const parsedCurrent = !isNaN(numCurrent) ? (numCurrent > 100 ? Math.round((numCurrent / 10) * 10) / 10 : numCurrent) : 21.0;
+        const parsedCurrent = !isNaN(numCurrent) ? (numCurrent > 100 ? Math.round((numCurrent / 10) * 10) / 10 : numCurrent) : 31.0;
 
-        const rawTarget = item.dps?.['24'] ?? item.dps?.['temp_set'] ?? item.dps?.['target_temp'] ?? item.dps?.['2'] ?? item.temp_set ?? item.targetTemp ?? 22.0;
+        const rawTarget =
+          item.dps?.['temp_set'] ??
+          item.dps?.['target_temp'] ??
+          item.dps?.['temp_target'] ??
+          item.dps?.['set_temp'] ??
+          item.dps?.['upper_temp'] ??
+          item.dps?.['24'] ??
+          item.dps?.['2'] ??
+          item.temp_set ??
+          item.target_temp ??
+          item.targetTemp ??
+          22.0;
         const numTarget = Number(rawTarget);
         const parsedTarget = !isNaN(numTarget) ? (numTarget > 100 ? Math.round((numTarget / 10) * 10) / 10 : numTarget) : 22.0;
 
@@ -106,7 +139,7 @@ export function parseSmartLifeJsonBackup(jsonString: string): ImportResult {
           power: item.dps?.['1'] ?? item.dps?.['switch'] ?? true,
           currentTemp: parsedCurrent,
           targetTemp: parsedTarget,
-          humidity: item.dps?.['humidity'] ?? item.dps?.['19'] ?? 50,
+          humidity: item.dps?.['humidity'] ?? item.dps?.['19'] ?? 48,
           mode: 'heat',
           fanSpeed: 'auto',
         };
@@ -115,6 +148,21 @@ export function parseSmartLifeJsonBackup(jsonString: string): ImportResult {
           triggered: false,
           sensorType: item.name?.toLowerCase().includes('allagamento') ? 'water' : 'door',
           battery: item.dps?.['2'] || 95,
+        };
+      } else if (cat === 'switch' || cat === 'gate' || cat === 'pulsed_switch') {
+        const sw1 = item.dps?.['switch_1'] ?? item.dps?.['1'] ?? item.dps?.['switch'] ?? false;
+        const sw2 = item.dps?.['switch_2'] ?? item.dps?.['2'] ?? false;
+        const sw3 = item.dps?.['switch_3'] ?? item.dps?.['3'] ?? false;
+        const sw4 = item.dps?.['switch_4'] ?? item.dps?.['4'] ?? false;
+        newDev.state.switch = {
+          power: Boolean(sw1 || sw2 || sw3 || sw4),
+          gangs: [Boolean(sw1), Boolean(sw2), Boolean(sw3), Boolean(sw4)],
+          channelStates: {
+            switch_1: Boolean(sw1),
+            switch_2: Boolean(sw2),
+            switch_3: Boolean(sw3),
+            switch_4: Boolean(sw4),
+          },
         };
       } else {
         newDev.state.plug = {

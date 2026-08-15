@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { SmartDevice } from '../types';
+import { SmartDevice, DeviceSchedule } from '../types';
+import { DeviceScheduleSection } from './DeviceScheduleSection';
 import { getTuyaConfig, saveTuyaConfig, TuyaCameraConfig, requestTuyaWebRTCStream, startWebRTCStream } from '../tuyaConfig';
 import { 
   X, 
@@ -38,7 +39,8 @@ import {
   Plus,
   Minus,
   Flame,
-  Sun
+  Sun,
+  Droplets
 } from 'lucide-react';
 
 // Helper function to compress and resize custom uploaded icons to 300x300 max
@@ -89,6 +91,7 @@ interface DeviceDetailModalProps {
   onDeleteDevice: (deviceId: string) => void;
   availableRooms?: string[];
   onTogglePower?: (device: SmartDevice) => void;
+  onToggleChannel?: (device: SmartDevice, channelDp: string, nextValue?: boolean) => void;
 }
 
 export const DeviceDetailModal: React.FC<DeviceDetailModalProps> = ({
@@ -98,6 +101,7 @@ export const DeviceDetailModal: React.FC<DeviceDetailModalProps> = ({
   onDeleteDevice,
   availableRooms = [],
   onTogglePower,
+  onToggleChannel,
 }) => {
   const [activeTab, setActiveTab] = useState<'control' | 'edit' | 'schedule' | 'info'>('control');
   const [timerMinutes, setTimerMinutes] = useState<number>(30);
@@ -353,13 +357,19 @@ export const DeviceDetailModal: React.FC<DeviceDetailModalProps> = ({
           </button>
           <button
             onClick={() => setActiveTab('schedule')}
-            className={`py-3 text-xs font-bold border-b-2 cursor-pointer transition ${
+            className={`py-3 text-xs font-bold border-b-2 cursor-pointer transition flex items-center gap-1.5 ${
               activeTab === 'schedule'
-                ? 'border-emerald-400 text-emerald-400'
+                ? 'border-cyan-400 text-cyan-400'
                 : 'border-transparent text-slate-400 hover:text-slate-200'
             }`}
           >
-            Timer & Programmazione
+            <Clock className="w-3.5 h-3.5" />
+            <span>Schedule / Timer</span>
+            {device.schedules && device.schedules.length > 0 && (
+              <span className="text-[10px] px-1.5 py-0.2 rounded-full font-extrabold bg-cyan-500/20 text-cyan-300 border border-cyan-500/30">
+                {device.schedules.length}
+              </span>
+            )}
           </button>
           <button
             onClick={() => setActiveTab('info')}
@@ -473,7 +483,10 @@ export const DeviceDetailModal: React.FC<DeviceDetailModalProps> = ({
               )}
 
               {/* Thermostat / Clima Controls */}
-              {(device.category === 'thermostat' || device.name.toLowerCase().includes('termostato') || device.name.toLowerCase().includes('caldaia')) && (
+              {(device.category === 'thermostat' ||
+                device.name.toLowerCase().includes('termo') ||
+                device.name.toLowerCase().includes('termosifoni') ||
+                device.name.toLowerCase().includes('caldaia')) && (
                 <div className="space-y-4">
                   {/* Temperatures Overview Cards */}
                   <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
@@ -489,7 +502,7 @@ export const DeviceDetailModal: React.FC<DeviceDetailModalProps> = ({
                             const val = cur > 100 ? cur / 10 : cur;
                             return `${val.toFixed(1)}°C`;
                           }
-                          return '21.0°C';
+                          return '31.0°C';
                         })()}
                       </span>
                       <span className="text-[10px] text-slate-400 mt-1 font-mono">Sensore Tuya (temp_current)</span>
@@ -968,6 +981,129 @@ export const DeviceDetailModal: React.FC<DeviceDetailModalProps> = ({
                   </button>
                 </div>
               )}
+
+              {/* 4-Channel Tuya Relay Irrigation Zone Controls */}
+              {(device.name.toLowerCase().includes('irrigaz') ||
+                device.name.toLowerCase().includes('solenoide') ||
+                device.customIcon === 'droplet' ||
+                device.customIcon === 'irrigation' ||
+                (device.category === 'switch' && Boolean(device.state.switch?.gangs && device.state.switch.gangs.length >= 4))) && (
+                <div className="bg-[#0A0A0B] p-5 rounded-2xl border border-white/5 space-y-4">
+                  <div className="flex items-center justify-between border-b border-white/10 pb-3">
+                    <div className="flex items-center gap-2.5">
+                      <div className="w-10 h-10 rounded-xl bg-cyan-500/20 border border-cyan-500/30 flex items-center justify-center text-cyan-400">
+                        <Droplets className="w-5 h-5" />
+                      </div>
+                      <div>
+                        <h4 className="text-sm font-bold text-white">Centralina Relè a 4 Canali Indipendenti</h4>
+                        <p className="text-xs text-slate-400">Comandi DP Tuya diretti (switch_1, switch_2, switch_3, switch_4)</p>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const zones = ['switch_1', 'switch_2', 'switch_3', 'switch_4'];
+                          zones.forEach((dp) => {
+                            if (onToggleChannel) {
+                              onToggleChannel(device, dp, false);
+                            }
+                          });
+                        }}
+                        className="px-3 py-1.5 rounded-lg text-xs font-bold bg-rose-500/20 text-rose-300 hover:bg-rose-500/30 border border-rose-500/30 transition cursor-pointer"
+                      >
+                        Spegni Tutte
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const zones = ['switch_1', 'switch_2', 'switch_3', 'switch_4'];
+                          zones.forEach((dp) => {
+                            if (onToggleChannel) {
+                              onToggleChannel(device, dp, true);
+                            }
+                          });
+                        }}
+                        className="px-3 py-1.5 rounded-lg text-xs font-bold bg-cyan-500/20 text-cyan-300 hover:bg-cyan-500/30 border border-cyan-500/30 transition cursor-pointer"
+                      >
+                        Attiva Tutte
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* 4 Channel Grid */}
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    {[
+                      {
+                        dpCode: 'switch_1',
+                        label: 'Lato Cancellone',
+                        chNum: 1,
+                        active: Boolean(device.state.switch?.channelStates?.switch_1 ?? device.state.switch?.gangs?.[0]),
+                      },
+                      {
+                        dpCode: 'switch_2',
+                        label: 'Centrale',
+                        chNum: 2,
+                        active: Boolean(device.state.switch?.channelStates?.switch_2 ?? device.state.switch?.gangs?.[1]),
+                      },
+                      {
+                        dpCode: 'switch_3',
+                        label: 'Lato Cancelletto',
+                        chNum: 3,
+                        active: Boolean(device.state.switch?.channelStates?.switch_3 ?? device.state.switch?.gangs?.[2]),
+                      },
+                      {
+                        dpCode: 'switch_4',
+                        label: 'Switch 4',
+                        chNum: 4,
+                        active: Boolean(device.state.switch?.channelStates?.switch_4 ?? device.state.switch?.gangs?.[3]),
+                      },
+                    ].map((zone) => (
+                      <div
+                        key={zone.dpCode}
+                        className={`p-4 rounded-xl border flex items-center justify-between transition-all ${
+                          zone.active
+                            ? 'bg-cyan-500/15 border-cyan-400/50 shadow-md shadow-cyan-950/20'
+                            : 'bg-white/5 border-white/10 hover:border-white/20'
+                        }`}
+                      >
+                        <div className="space-y-1">
+                          <div className="flex items-center gap-2">
+                            <span className="text-[10px] font-mono font-bold bg-white/10 text-cyan-300 px-1.5 py-0.5 rounded">
+                              Canale {zone.chNum} • {zone.dpCode}
+                            </span>
+                            <span
+                              className={`text-[10px] font-extrabold uppercase ${
+                                zone.active ? 'text-cyan-400' : 'text-slate-400'
+                              }`}
+                            >
+                              {zone.active ? '● ATTIVO' : '○ SPENTO'}
+                            </span>
+                          </div>
+                          <p className="font-bold text-sm text-white">{zone.label}</p>
+                        </div>
+
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (onToggleChannel) {
+                              onToggleChannel(device, zone.dpCode, !zone.active);
+                            }
+                          }}
+                          className={`w-12 h-12 rounded-xl flex items-center justify-center transition-all cursor-pointer shadow-md ${
+                            zone.active
+                              ? 'bg-cyan-400 text-slate-950 shadow-cyan-400/30'
+                              : 'bg-white/10 text-slate-400 hover:text-white hover:bg-white/15'
+                          }`}
+                        >
+                          <Power className="w-6 h-6" />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
           )}
 
@@ -1277,47 +1413,18 @@ export const DeviceDetailModal: React.FC<DeviceDetailModalProps> = ({
           )}
 
           {activeTab === 'schedule' && (
-            <div className="space-y-4">
-              <div className="bg-[#0A0A0B] p-4 rounded-2xl border border-white/5 space-y-3">
-                <div className="flex items-center gap-2 text-emerald-400">
-                  <Clock className="w-5 h-5" />
-                  <h4 className="text-sm font-bold text-white">Timer di Spegnimento Automatico</h4>
-                </div>
-                <p className="text-xs text-slate-400">
-                  Imposta un conto alla rovescia dopo il quale il dispositivo si spegnerà automaticamente.
-                </p>
-
-                <div className="flex items-center gap-3">
-                  <input
-                    type="number"
-                    min="1"
-                    max="300"
-                    value={timerMinutes}
-                    onChange={(e) => setTimerMinutes(parseInt(e.target.value, 10))}
-                    className="w-24 bg-[#121214] border border-white/10 text-white font-mono text-center px-3 py-2 rounded-xl focus:border-emerald-500 focus:outline-none"
-                  />
-                  <span className="text-xs text-slate-300">Minuti</span>
-
-                  <button
-                    onClick={() => setTimerRunning(!timerRunning)}
-                    className={`ml-auto px-4 py-2 rounded-xl font-bold text-xs cursor-pointer transition ${
-                      timerRunning
-                        ? 'bg-rose-500 text-white'
-                        : 'bg-emerald-500 text-black hover:bg-emerald-400'
-                    }`}
-                  >
-                    {timerRunning ? 'Annulla Timer' : 'Avvia Timer'}
-                  </button>
-                </div>
-
-                {timerRunning && (
-                  <div className="p-3 bg-emerald-500/10 border border-emerald-500/30 rounded-xl text-xs text-emerald-300 flex items-center justify-between">
-                    <span>Timer attivo per {device.name}</span>
-                    <span className="font-mono font-bold">{timerMinutes}:00 restanti</span>
-                  </div>
-                )}
-              </div>
-            </div>
+            <DeviceScheduleSection
+              device={device}
+              onUpdateSchedules={(newSchedules: DeviceSchedule[]) => {
+                const updatedDev: SmartDevice = {
+                  ...device,
+                  schedules: newSchedules,
+                };
+                onUpdateDevice(updatedDev);
+              }}
+              onToggleChannel={onToggleChannel}
+              onTogglePower={onTogglePower}
+            />
           )}
 
           {activeTab === 'info' && (

@@ -30,7 +30,8 @@ import {
   Check,
   Loader2,
   Volume2,
-  VolumeX
+  VolumeX,
+  Droplets
 } from 'lucide-react';
 
 interface DeviceCardProps {
@@ -39,7 +40,188 @@ interface DeviceCardProps {
   onUpdateState: (deviceId: string, updatedState: Partial<SmartDevice['state']>) => void;
   onClickDetail: (device: SmartDevice) => void;
   onDeleteDevice?: (deviceId: string) => void;
+  onToggleChannel?: (device: SmartDevice, channelDp: string, nextValue?: boolean) => void;
 }
+
+// 4-Channel Tuya Relay Irrigation Card component
+const IrrigationCard: React.FC<{
+  device: SmartDevice;
+  onClickDetail: (device: SmartDevice) => void;
+  onTogglePower: (device: SmartDevice) => void;
+  onUpdateState?: (deviceId: string, updatedState: Partial<SmartDevice['state']>) => void;
+  onToggleChannel?: (device: SmartDevice, channelDp: string, nextValue?: boolean) => void;
+}> = ({ device, onClickDetail, onTogglePower, onUpdateState, onToggleChannel }) => {
+  const switchState = device.state.switch;
+
+  const isZone1 = Boolean(switchState?.channelStates?.switch_1 ?? switchState?.gangs?.[0]);
+  const isZone2 = Boolean(switchState?.channelStates?.switch_2 ?? switchState?.gangs?.[1]);
+  const isZone3 = Boolean(switchState?.channelStates?.switch_3 ?? switchState?.gangs?.[2]);
+  const isZone4 = Boolean(switchState?.channelStates?.switch_4 ?? switchState?.gangs?.[3]);
+
+  const activeCount = [isZone1, isZone2, isZone3, isZone4].filter(Boolean).length;
+  const isAnyActive = activeCount > 0;
+
+  const channels = [
+    { dpCode: 'switch_1', num: 1, name: 'Lato Cancellone', active: isZone1 },
+    { dpCode: 'switch_2', num: 2, name: 'Centrale', active: isZone2 },
+    { dpCode: 'switch_3', num: 3, name: 'Lato Cancelletto', active: isZone3 },
+    { dpCode: 'switch_4', num: 4, name: 'Switch 4', active: isZone4 },
+  ];
+
+  const handleToggle = (dpCode: string, currentVal: boolean) => {
+    if (onToggleChannel) {
+      onToggleChannel(device, dpCode, !currentVal);
+    } else if (onUpdateState) {
+      const idxMap: Record<string, number> = { switch_1: 0, switch_2: 1, switch_3: 2, switch_4: 3 };
+      const idx = idxMap[dpCode] ?? 0;
+      const nextGangs = [
+        Boolean(switchState?.channelStates?.switch_1 ?? switchState?.gangs?.[0]),
+        Boolean(switchState?.channelStates?.switch_2 ?? switchState?.gangs?.[1]),
+        Boolean(switchState?.channelStates?.switch_3 ?? switchState?.gangs?.[2]),
+        Boolean(switchState?.channelStates?.switch_4 ?? switchState?.gangs?.[3]),
+      ];
+      nextGangs[idx] = !currentVal;
+      onUpdateState(device.id, {
+        switch: {
+          power: nextGangs.some(Boolean),
+          gangs: nextGangs,
+          channelStates: {
+            ...(switchState?.channelStates || {}),
+            switch_1: nextGangs[0],
+            switch_2: nextGangs[1],
+            switch_3: nextGangs[2],
+            switch_4: nextGangs[3],
+            [dpCode]: !currentVal,
+          },
+        },
+      });
+    }
+  };
+
+  const handleMasterToggle = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    const targetVal = !isAnyActive;
+    channels.forEach((ch) => {
+      if (ch.active !== targetVal) {
+        if (onToggleChannel) {
+          onToggleChannel(device, ch.dpCode, targetVal);
+        }
+      }
+    });
+  };
+
+  return (
+    <div
+      className={`group relative p-3.5 rounded-[24px] flex flex-col justify-between transition-all duration-200 select-none shadow-md ${
+        isAnyActive
+          ? 'bg-[#121c24] border border-cyan-500/40 text-white shadow-cyan-950/40'
+          : 'bg-black/25 backdrop-blur-md border border-white/15 text-white'
+      }`}
+    >
+      {/* Top Header: Icon, Device Title, Zone Status & Controls */}
+      <div className="flex items-start justify-between gap-2 pb-2.5 border-b border-white/10">
+        <div className="flex items-center gap-2.5 min-w-0">
+          <div
+            className={`w-9 h-9 rounded-full flex items-center justify-center transition-all ${
+              isAnyActive
+                ? 'bg-cyan-400 text-slate-950 shadow-md shadow-cyan-400/30'
+                : 'bg-white/10 border border-white/10 text-cyan-400'
+            }`}
+          >
+            <Droplets className={`w-5 h-5 ${isAnyActive ? 'fill-slate-950 text-slate-950 animate-pulse' : 'fill-cyan-400 text-cyan-400'}`} />
+          </div>
+          <div className="min-w-0">
+            <h4 className="font-bold text-xs leading-snug truncate text-white">
+              {device.name}
+            </h4>
+            <div className="flex items-center gap-1.5 mt-0.5">
+              <span className={`text-[10px] font-extrabold uppercase tracking-wider ${
+                isAnyActive ? 'text-cyan-300' : 'text-slate-400'
+              }`}>
+                {isAnyActive ? `${activeCount} su 4 Attive` : 'Tutte Spente'}
+              </span>
+              <span className="text-[9px] bg-white/10 text-slate-300 px-1.5 py-0.2 rounded font-mono">
+                4CH Tuya
+              </span>
+            </div>
+          </div>
+        </div>
+
+        <div className="flex items-center gap-1">
+          <button
+            type="button"
+            onClick={handleMasterToggle}
+            className={`px-2 py-0.5 rounded-lg text-[10px] font-bold transition cursor-pointer ${
+              isAnyActive
+                ? 'bg-rose-500/20 text-rose-300 hover:bg-rose-500/30 border border-rose-500/30'
+                : 'bg-cyan-500/20 text-cyan-300 hover:bg-cyan-500/30 border border-cyan-500/30'
+            }`}
+            title={isAnyActive ? 'Spegni tutte le 4 zone' : 'Attiva tutte le 4 zone'}
+          >
+            {isAnyActive ? 'Tutte OFF' : 'Tutte ON'}
+          </button>
+
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              onClickDetail(device);
+            }}
+            className="p-1 rounded-full text-white/60 hover:text-white hover:bg-white/10 transition cursor-pointer"
+            title="Impostazioni e Timer"
+          >
+            <Settings className="w-4 h-4" />
+          </button>
+        </div>
+      </div>
+
+      {/* 4 Channel Buttons in 2x2 Grid */}
+      <div className="grid grid-cols-2 gap-2 mt-2.5">
+        {channels.map((ch) => (
+          <button
+            key={ch.dpCode}
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              handleToggle(ch.dpCode, ch.active);
+            }}
+            className={`group/btn relative p-2.5 rounded-xl border text-left flex flex-col justify-between transition-all duration-150 cursor-pointer active:scale-95 ${
+              ch.active
+                ? 'bg-cyan-500/25 border-cyan-400 text-white shadow-md shadow-cyan-900/30'
+                : 'bg-white/5 hover:bg-white/10 border-white/10 text-slate-300 hover:text-white'
+            }`}
+          >
+            <div className="flex items-center justify-between w-full mb-1">
+              <span className="text-[9px] font-mono font-bold text-cyan-300">
+                CH {ch.num} • {ch.dpCode}
+              </span>
+              <div
+                className={`w-5 h-5 rounded-full flex items-center justify-center transition-all ${
+                  ch.active
+                    ? 'bg-cyan-400 text-slate-950 shadow-sm'
+                    : 'bg-white/10 text-slate-400 group-hover/btn:text-white'
+                }`}
+              >
+                <Power className="w-3 h-3" />
+              </div>
+            </div>
+
+            <div className="w-full">
+              <p className="font-bold text-xs truncate leading-tight text-white">
+                {ch.name}
+              </p>
+              <span className={`text-[10px] font-black uppercase tracking-wider block mt-0.5 ${
+                ch.active ? 'text-cyan-300 font-extrabold' : 'text-slate-400'
+              }`}>
+                {ch.active ? 'ON' : 'OFF'}
+              </span>
+            </div>
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+};
 
 // Camera Live View Card component matching Smart Life / Tuya screenshot layout
 const CameraCard: React.FC<{
@@ -484,7 +666,9 @@ const CameraCard: React.FC<{
 export const DeviceCard: React.FC<DeviceCardProps> = ({
   device,
   onTogglePower,
+  onUpdateState,
   onClickDetail,
+  onToggleChannel,
 }) => {
   const { category, name, state } = device;
 
@@ -492,6 +676,25 @@ export const DeviceCard: React.FC<DeviceCardProps> = ({
 
   if (isCamera) {
     return <CameraCard device={device} onClickDetail={onClickDetail} />;
+  }
+
+  const isIrrigation =
+    name.toLowerCase().includes('irrigaz') ||
+    name.toLowerCase().includes('solenoide') ||
+    device.customIcon === 'droplet' ||
+    device.customIcon === 'irrigation' ||
+    (category === 'switch' && Boolean(state.switch?.gangs && state.switch.gangs.length >= 4));
+
+  if (isIrrigation) {
+    return (
+      <IrrigationCard
+        device={device}
+        onClickDetail={onClickDetail}
+        onTogglePower={onTogglePower}
+        onUpdateState={onUpdateState}
+        onToggleChannel={onToggleChannel}
+      />
+    );
   }
 
   const isGateOrImpulse =
@@ -638,9 +841,15 @@ export const DeviceCard: React.FC<DeviceCardProps> = ({
         </div>
       );
     }
-    if (iconType === 'thermostat' || iconType === 'thermometer' || category === 'thermostat') {
+    if (
+      iconType === 'thermostat' ||
+      iconType === 'thermometer' ||
+      category === 'thermostat' ||
+      name.toLowerCase().includes('termo') ||
+      name.toLowerCase().includes('termosifoni')
+    ) {
       const cur = state.thermostat?.currentTemp ?? (state as any)?.temperature;
-      let displayTemp = '21.0°';
+      let displayTemp = '31.0°';
       if (cur !== undefined && cur !== null) {
         const num = Number(cur);
         if (!isNaN(num)) {

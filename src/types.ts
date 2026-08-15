@@ -110,6 +110,24 @@ export interface DeviceCurtainsState {
 export interface DeviceSwitchState {
   power: boolean;
   gangs: boolean[]; // Multi-switch gang state
+  channelStates?: {
+    switch_1?: boolean;
+    switch_2?: boolean;
+    switch_3?: boolean;
+    switch_4?: boolean;
+    [key: string]: boolean | undefined;
+  };
+}
+
+export interface DeviceSchedule {
+  id: string;
+  deviceId: string;
+  time: string; // "HH:MM" 24h format (e.g. "07:30")
+  days: string[]; // ["Lun", "Mar", "Mer", "Gio", "Ven", "Sab", "Dom"]
+  action: boolean; // true = ON / Accendi, false = OFF / Spegni
+  enabled: boolean; // true = active, false = paused
+  channel?: string; // e.g. "switch_1", "switch_2", "switch_3", "switch_4" (for 4CH relay / irrigation)
+  label?: string; // Optional user note or reminder
 }
 
 export interface SmartDevice {
@@ -130,6 +148,7 @@ export interface SmartDevice {
   customImageUrl?: string;
   channel?: string | null; // Tuya switch channel (e.g. 'switch_1', 'switch_2', 'switch_3', 'switch_4')
   dpCode?: string | null;
+  schedules?: DeviceSchedule[]; // Smart Life device timer / schedules list
   state: {
     plug?: DevicePlugState;
     light?: DeviceLightState;
