@@ -33,10 +33,10 @@ export default async function handler(req, res) {
 
   try {
     const body = req.body || {};
-    const clientAccessId = body.clientAccessId || body.clientId || process.env.TUYA_CLIENT_ID;
-    const clientSecret = body.clientSecret || process.env.TUYA_CLIENT_SECRET;
-    const region = body.region || 'eu';
-    const userUid = body.userUid || body.uid || body.email;
+    const clientAccessId = body.clientAccessId || body.clientId || process.env.ID || process.env.TUYA_CLIENT_ID;
+    const clientSecret = body.clientSecret || process.env.ID_SEGRETO || process.env.TUYA_CLIENT_SECRET;
+    const region = body.region || process.env.TUYA_REGION || process.env.REGION || 'eu';
+    const userUid = body.userUid || body.uid || process.env.UID || process.env.TUYA_UID || body.email;
 
     if (!clientAccessId || !clientSecret) {
       return res.status(400).json({

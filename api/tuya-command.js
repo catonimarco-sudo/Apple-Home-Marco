@@ -81,9 +81,9 @@ export default async function handler(req, res) {
 
   try {
     const body = req.body || {};
-    const clientAccessId = body.clientAccessId || process.env.TUYA_CLIENT_ID;
-    const clientSecret = body.clientSecret || process.env.TUYA_CLIENT_SECRET;
-    const region = body.region || 'eu';
+    const clientAccessId = body.clientAccessId || process.env.ID || process.env.TUYA_CLIENT_ID;
+    const clientSecret = body.clientSecret || process.env.ID_SEGRETO || process.env.TUYA_CLIENT_SECRET;
+    const region = body.region || process.env.TUYA_REGION || process.env.REGION || 'eu';
     const cleanDeviceId = String(body.deviceId || '').trim();
 
     if (!cleanDeviceId) {
