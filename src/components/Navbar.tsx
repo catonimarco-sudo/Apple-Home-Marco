@@ -114,30 +114,6 @@ export const Navbar: React.FC<NavbarProps> = ({
             </div>
           </div>
 
-          {/* Apple Home Status Pills Bar */}
-          <div className="flex items-center gap-2 overflow-x-auto no-scrollbar py-1">
-            <div className="flex items-center gap-1.5 bg-amber-400/15 border border-amber-400/30 text-amber-300 px-3.5 py-1.5 rounded-full text-xs font-bold whitespace-nowrap shadow-sm">
-              <SunMedium className="w-4 h-4 text-amber-400 fill-current" />
-              <span>{totalActiveCount} Attivi</span>
-            </div>
-            <div 
-              onClick={() => setActiveTab('energy')}
-              className="flex items-center gap-1.5 bg-emerald-500/15 border border-emerald-500/30 text-emerald-300 px-3.5 py-1.5 rounded-full text-xs font-bold whitespace-nowrap cursor-pointer hover:bg-emerald-500/25 transition shadow-sm"
-              title="Visualizza Dettaglio Consumi"
-            >
-              <Zap className="w-4 h-4 text-emerald-400 fill-current" />
-              <span>{totalWatts.toFixed(0)} W</span>
-            </div>
-            <div className="flex items-center gap-1.5 bg-sky-500/15 border border-sky-500/30 text-sky-300 px-3.5 py-1.5 rounded-full text-xs font-bold whitespace-nowrap shadow-sm">
-              <Thermometer className="w-4 h-4 text-sky-400" />
-              <span>21.5°C Clima</span>
-            </div>
-            <div className="flex items-center gap-1.5 bg-white/10 border border-white/15 text-slate-200 px-3.5 py-1.5 rounded-full text-xs font-bold whitespace-nowrap shadow-sm">
-              <Lock className="w-4 h-4 text-emerald-400" />
-              <span>Casa Protetta</span>
-            </div>
-          </div>
-
           {/* Search & Actions on Desktop */}
           <div className="hidden md:flex items-center gap-2.5">
             <div className="relative w-52">

@@ -542,8 +542,21 @@ export const DeviceCard: React.FC<DeviceCardProps> = ({
     if (isGateOrImpulse) {
       return 'IMPULSO ON';
     }
-    if (category === 'thermostat' && state.thermostat?.targetTemp) {
-      return `${state.thermostat.targetTemp}°C`;
+    if (category === 'thermostat') {
+      const cur = state.thermostat?.currentTemp;
+      const tgt = state.thermostat?.targetTemp;
+      const parsedCur = cur !== undefined && cur !== null ? (cur > 100 ? cur / 10 : cur) : null;
+      const parsedTgt = tgt !== undefined && tgt !== null ? (tgt > 100 ? tgt / 10 : tgt) : null;
+      if (parsedCur !== null && parsedTgt !== null) {
+        return `${parsedCur.toFixed(1)}°C • Set ${parsedTgt.toFixed(1)}°C`;
+      }
+      if (parsedCur !== null) {
+        return `${parsedCur.toFixed(1)}°C`;
+      }
+      if (parsedTgt !== null) {
+        return `${parsedTgt.toFixed(1)}°C`;
+      }
+      return 'ON';
     }
     return 'ON';
   };
@@ -625,11 +638,20 @@ export const DeviceCard: React.FC<DeviceCardProps> = ({
         </div>
       );
     }
-    if (iconType === 'thermostat' || iconType === 'thermometer') {
+    if (iconType === 'thermostat' || iconType === 'thermometer' || category === 'thermostat') {
+      const cur = state.thermostat?.currentTemp ?? (state as any)?.temperature;
+      let displayTemp = '21.0°';
+      if (cur !== undefined && cur !== null) {
+        const num = Number(cur);
+        if (!isNaN(num)) {
+          const val = num > 100 ? num / 10 : num;
+          displayTemp = `${val.toFixed(1)}°`;
+        }
+      }
       return (
         <div className={badgeClasses}>
-          <span className={`text-xs font-black ${isPowerOn ? 'text-slate-900' : 'text-amber-400'}`}>
-            {state.thermostat?.currentTemp ? `${Math.round(state.thermostat.currentTemp)}°` : '20°'}
+          <span className={`text-[11px] font-black ${isPowerOn ? 'text-slate-900' : 'text-amber-400'}`}>
+            {displayTemp}
           </span>
         </div>
       );

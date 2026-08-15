@@ -94,11 +94,19 @@ export function parseSmartLifeJsonBackup(jsonString: string): ImportResult {
           mode: 'color',
         };
       } else if (cat === 'thermostat') {
+        const rawCurrent = item.dps?.['16'] ?? item.dps?.['temp_current'] ?? item.dps?.['va_temperature'] ?? item.dps?.['temp_indoor'] ?? item.dps?.['cur_temp'] ?? item.temp_current ?? item.va_temperature ?? item.currentTemp ?? 21.0;
+        const numCurrent = Number(rawCurrent);
+        const parsedCurrent = !isNaN(numCurrent) ? (numCurrent > 100 ? Math.round((numCurrent / 10) * 10) / 10 : numCurrent) : 21.0;
+
+        const rawTarget = item.dps?.['24'] ?? item.dps?.['temp_set'] ?? item.dps?.['target_temp'] ?? item.dps?.['2'] ?? item.temp_set ?? item.targetTemp ?? 22.0;
+        const numTarget = Number(rawTarget);
+        const parsedTarget = !isNaN(numTarget) ? (numTarget > 100 ? Math.round((numTarget / 10) * 10) / 10 : numTarget) : 22.0;
+
         newDev.state.thermostat = {
-          power: item.dps?.['1'] ?? true,
-          currentTemp: item.dps?.['16'] ?? 21.0,
-          targetTemp: item.dps?.['24'] ?? 22.0,
-          humidity: 50,
+          power: item.dps?.['1'] ?? item.dps?.['switch'] ?? true,
+          currentTemp: parsedCurrent,
+          targetTemp: parsedTarget,
+          humidity: item.dps?.['humidity'] ?? item.dps?.['19'] ?? 50,
           mode: 'heat',
           fanSpeed: 'auto',
         };

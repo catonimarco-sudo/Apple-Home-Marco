@@ -34,7 +34,11 @@ import {
   Plug,
   Key,
   Video,
-  ChevronDown
+  ChevronDown,
+  Plus,
+  Minus,
+  Flame,
+  Sun
 } from 'lucide-react';
 
 // Helper function to compress and resize custom uploaded icons to 300x300 max
@@ -119,6 +123,13 @@ export const DeviceDetailModal: React.FC<DeviceDetailModalProps> = ({
   const [editDpCodeCustom, setEditDpCodeCustom] = useState<string>(device?.dpCode || '');
   const [editCustomIcon, setEditCustomIcon] = useState<string>(device?.customIcon || '');
   const [editCustomImageUrl, setEditCustomImageUrl] = useState<string>(device?.customImageUrl || '');
+  const [editCurrentTemp, setEditCurrentTemp] = useState<string>(() => {
+    const cur = device?.state.thermostat?.currentTemp;
+    if (cur !== undefined && cur !== null) {
+      return (cur > 100 ? cur / 10 : cur).toString();
+    }
+    return '31.0';
+  });
   const [isSaved, setIsSaved] = useState<boolean>(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState<boolean>(false);
 
@@ -154,6 +165,12 @@ export const DeviceDetailModal: React.FC<DeviceDetailModalProps> = ({
       setEditDpCodeCustom(device.dpCode || '');
       setEditCustomIcon(device.customIcon || '');
       setEditCustomImageUrl(device.customImageUrl || '');
+      const cur = device.state.thermostat?.currentTemp;
+      if (cur !== undefined && cur !== null) {
+        setEditCurrentTemp((cur > 100 ? cur / 10 : cur).toString());
+      } else {
+        setEditCurrentTemp('31.0');
+      }
       setShowDeleteConfirm(false);
 
       const devId = device.tuyaDeviceId || device.id;
@@ -222,6 +239,19 @@ export const DeviceDetailModal: React.FC<DeviceDetailModalProps> = ({
     const finalChannel = editChannel || 'switch_1';
     const customDpTrimmed = editDpCodeCustom.trim();
     const finalDpCode = customDpTrimmed || finalChannel;
+
+    let updatedState = { ...device.state };
+    if (editCategory === 'thermostat' || device.category === 'thermostat') {
+      const parsedCurrentTemp = parseFloat(editCurrentTemp) || 31.0;
+      updatedState = {
+        ...updatedState,
+        thermostat: {
+          ...(device.state.thermostat || { power: true, targetTemp: 22, humidity: 48, mode: 'heat', fanSpeed: 'auto' }),
+          currentTemp: parsedCurrentTemp,
+        },
+      };
+    }
+
     const updated: SmartDevice = {
       ...device,
       name: editName,
@@ -234,6 +264,7 @@ export const DeviceDetailModal: React.FC<DeviceDetailModalProps> = ({
       customImageUrl: editCustomImageUrl || '',
       channel: finalChannel,
       dpCode: finalDpCode,
+      state: updatedState,
     };
     onUpdateDevice(updated);
     setIsSaved(true);
@@ -436,6 +467,174 @@ export const DeviceDetailModal: React.FC<DeviceDetailModalProps> = ({
                           style={{ backgroundColor: hex }}
                         />
                       ))}
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Thermostat / Clima Controls */}
+              {(device.category === 'thermostat' || device.name.toLowerCase().includes('termostato') || device.name.toLowerCase().includes('caldaia')) && (
+                <div className="space-y-4">
+                  {/* Temperatures Overview Cards */}
+                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                    <div className="bg-[#0A0A0B] p-4 rounded-2xl border border-white/5 text-center flex flex-col items-center justify-center">
+                      <div className="flex items-center gap-1.5 text-xs text-slate-400 mb-1">
+                        <Thermometer className="w-4 h-4 text-emerald-400" />
+                        <span>Ambiente Reale</span>
+                      </div>
+                      <span className="text-2xl sm:text-3xl font-black font-mono text-emerald-400">
+                        {(() => {
+                          const cur = device.state.thermostat?.currentTemp;
+                          if (cur !== undefined && cur !== null) {
+                            const val = cur > 100 ? cur / 10 : cur;
+                            return `${val.toFixed(1)}°C`;
+                          }
+                          return '21.0°C';
+                        })()}
+                      </span>
+                      <span className="text-[10px] text-slate-400 mt-1 font-mono">Sensore Tuya (temp_current)</span>
+                    </div>
+
+                    <div className="bg-[#0A0A0B] p-4 rounded-2xl border border-white/5 text-center flex flex-col items-center justify-center">
+                      <div className="flex items-center gap-1.5 text-xs text-slate-400 mb-1">
+                        <Flame className="w-4 h-4 text-amber-400" />
+                        <span>Impostata (Target)</span>
+                      </div>
+                      <span className="text-2xl sm:text-3xl font-black font-mono text-amber-400">
+                        {(() => {
+                          const tgt = device.state.thermostat?.targetTemp;
+                          if (tgt !== undefined && tgt !== null) {
+                            const val = tgt > 100 ? tgt / 10 : tgt;
+                            return `${val.toFixed(1)}°C`;
+                          }
+                          return '22.0°C';
+                        })()}
+                      </span>
+                      <span className="text-[10px] text-slate-400 mt-1 font-mono">Set Point (temp_set)</span>
+                    </div>
+
+                    <div className="bg-[#0A0A0B] p-4 rounded-2xl border border-white/5 text-center flex flex-col items-center justify-center col-span-2 sm:col-span-1">
+                      <div className="flex items-center gap-1.5 text-xs text-slate-400 mb-1">
+                        <Wind className="w-4 h-4 text-cyan-400" />
+                        <span>Umidità Relativa</span>
+                      </div>
+                      <span className="text-2xl sm:text-3xl font-black font-mono text-cyan-400">
+                        {device.state.thermostat?.humidity || 50}%
+                      </span>
+                      <span className="text-[10px] text-slate-400 mt-1 font-mono">Umidità Ambiente</span>
+                    </div>
+                  </div>
+
+                  {/* Target Temperature Adjustment Bar */}
+                  <div className="bg-[#0A0A0B] p-4 rounded-2xl border border-white/5 space-y-4">
+                    <div className="flex items-center justify-between">
+                      <h4 className="text-sm font-bold text-white flex items-center gap-2">
+                        <Sliders className="w-4 h-4 text-amber-400" />
+                        <span>Regola Temperatura Target</span>
+                      </h4>
+                      <button
+                        type="button"
+                        onClick={() =>
+                          handleStateChange({
+                            thermostat: {
+                              ...(device.state.thermostat || { currentTemp: 21, targetTemp: 22, humidity: 50, mode: 'heat', fanSpeed: 'auto' }),
+                              power: !device.state.thermostat?.power,
+                            },
+                          })
+                        }
+                        className={`px-3 py-1 rounded-xl text-xs font-bold transition flex items-center gap-1.5 cursor-pointer ${
+                          device.state.thermostat?.power
+                            ? 'bg-amber-400 text-slate-950 shadow-md font-bold'
+                            : 'bg-white/10 text-slate-400 hover:text-white'
+                        }`}
+                      >
+                        <Power className="w-3.5 h-3.5" />
+                        <span>{device.state.thermostat?.power ? 'ACCESO' : 'SPENTO'}</span>
+                      </button>
+                    </div>
+
+                    <div className="flex items-center justify-center gap-6 py-2">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const curTgt = device.state.thermostat?.targetTemp || 22.0;
+                          const norm = curTgt > 100 ? curTgt / 10 : curTgt;
+                          const newTgt = Math.max(10, Math.round((norm - 0.5) * 10) / 10);
+                          handleStateChange({
+                            thermostat: {
+                              ...(device.state.thermostat || { currentTemp: 21, targetTemp: 22, humidity: 50, mode: 'heat', fanSpeed: 'auto', power: true }),
+                              targetTemp: newTgt,
+                              power: true,
+                            },
+                          });
+                        }}
+                        className="w-12 h-12 rounded-2xl bg-white/5 hover:bg-white/10 text-white flex items-center justify-center text-xl font-bold border border-white/10 hover:border-amber-400/50 transition cursor-pointer active:scale-95"
+                        title="Diminuisci 0.5°C"
+                      >
+                        <Minus className="w-6 h-6" />
+                      </button>
+
+                      <div className="text-center">
+                        <span className="text-4xl font-black text-white font-mono tracking-tight">
+                          {(() => {
+                            const tgt = device.state.thermostat?.targetTemp;
+                            if (tgt !== undefined && tgt !== null) {
+                              const val = tgt > 100 ? tgt / 10 : tgt;
+                              return `${val.toFixed(1)}°C`;
+                            }
+                            return '22.0°C';
+                          })()}
+                        </span>
+                        <span className="block text-[11px] text-slate-400 mt-0.5">Temperatura Desiderata</span>
+                      </div>
+
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const curTgt = device.state.thermostat?.targetTemp || 22.0;
+                          const norm = curTgt > 100 ? curTgt / 10 : curTgt;
+                          const newTgt = Math.min(35, Math.round((norm + 0.5) * 10) / 10);
+                          handleStateChange({
+                            thermostat: {
+                              ...(device.state.thermostat || { currentTemp: 21, targetTemp: 22, humidity: 50, mode: 'heat', fanSpeed: 'auto', power: true }),
+                              targetTemp: newTgt,
+                              power: true,
+                            },
+                          });
+                        }}
+                        className="w-12 h-12 rounded-2xl bg-white/5 hover:bg-white/10 text-white flex items-center justify-center text-xl font-bold border border-white/10 hover:border-amber-400/50 transition cursor-pointer active:scale-95"
+                        title="Aumenta 0.5°C"
+                      >
+                        <Plus className="w-6 h-6" />
+                      </button>
+                    </div>
+
+                    <div className="space-y-1">
+                      <input
+                        type="range"
+                        min="10"
+                        max="35"
+                        step="0.5"
+                        value={(() => {
+                          const tgt = device.state.thermostat?.targetTemp || 22;
+                          return tgt > 100 ? tgt / 10 : tgt;
+                        })()}
+                        onChange={(e) =>
+                          handleStateChange({
+                            thermostat: {
+                              ...(device.state.thermostat || { currentTemp: 21, targetTemp: 22, humidity: 50, mode: 'heat', fanSpeed: 'auto', power: true }),
+                              targetTemp: parseFloat(e.target.value),
+                              power: true,
+                            },
+                          })
+                        }
+                        className="w-full h-2 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-amber-400"
+                      />
+                      <div className="flex justify-between text-[10px] text-slate-400 font-mono">
+                        <span>10°C (Min)</span>
+                        <span>22.5°C (Comfort)</span>
+                        <span>35°C (Max)</span>
+                      </div>
                     </div>
                   </div>
                 </div>
@@ -908,6 +1107,25 @@ export const DeviceDetailModal: React.FC<DeviceDetailModalProps> = ({
                     className="w-full bg-[#121214] border border-white/10 px-3 py-2 rounded-xl text-white font-mono focus:border-emerald-500 focus:outline-none"
                   />
                 </div>
+
+                {(editCategory === 'thermostat' || device.category === 'thermostat') && (
+                  <div>
+                    <label className="text-slate-300 font-bold block mb-1">
+                      Temperatura Ambiente Reale Rilevata (°C)
+                    </label>
+                    <input
+                      type="number"
+                      step="0.1"
+                      value={editCurrentTemp}
+                      onChange={(e) => setEditCurrentTemp(e.target.value)}
+                      placeholder="31.0"
+                      className="w-full bg-[#121214] border border-white/10 px-3 py-2 rounded-xl text-emerald-400 font-mono font-bold focus:border-emerald-500 focus:outline-none"
+                    />
+                    <p className="text-[11px] text-slate-400 mt-1">
+                      Visualizzata su display (come i 31°C rilevati dal sensore fisico a muro).
+                    </p>
+                  </div>
+                )}
 
                 <div>
                   <label className="text-slate-300 font-bold block mb-1">Canale / Switch ID (DP Code Tuya)</label>

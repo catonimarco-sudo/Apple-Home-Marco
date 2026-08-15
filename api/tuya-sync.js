@@ -125,6 +125,116 @@ export default async function handler(req, res) {
     const rawDevices = devicesData?.result || [];
     let mappedDevices = [];
 
+    // Helper to safely extract status properties from Tuya payload
+    function getStatusVal(d, codeNames) {
+      if (!d) return undefined;
+      if (Array.isArray(d.status)) {
+        for (const code of codeNames) {
+          const found = d.status.find(
+            (s) => s && s.code && s.code.toLowerCase() === code.toLowerCase()
+          );
+          if (found && found.value !== undefined && found.value !== null) {
+            return found.value;
+          }
+        }
+      }
+      if (d.dps && typeof d.dps === 'object') {
+        for (const code of codeNames) {
+          if (d.dps[code] !== undefined && d.dps[code] !== null) {
+            return d.dps[code];
+          }
+        }
+      }
+      if (Array.isArray(d.properties)) {
+        for (const code of codeNames) {
+          const found = d.properties.find(
+            (p) => p && (p.code === code || p.dp_id === code)
+          );
+          if (found && found.value !== undefined && found.value !== null) {
+            return found.value;
+          }
+        }
+      }
+      return undefined;
+    }
+
+    // Helper to extract thermostat data with standard Tuya DP codes and scale factor (>100 / 10)
+    function extractThermostatData(d) {
+      const rawCurrentTemp = getStatusVal(d, [
+        'temp_current',
+        'va_temperature',
+        'temp_indoor',
+        'cur_temp',
+        'temperature',
+        'temp',
+        'room_temp',
+        'current_temp',
+        'temp_value',
+        '16',
+        '24',
+        '18'
+      ]);
+
+      const rawTargetTemp = getStatusVal(d, [
+        'temp_set',
+        'target_temp',
+        'temp_target',
+        'set_temp',
+        'upper_temp',
+        '2',
+        '24',
+        '16'
+      ]);
+
+      const rawPower = getStatusVal(d, [
+        'switch',
+        'switch_1',
+        'power',
+        'switch_main',
+        '1'
+      ]);
+
+      const rawHumidity = getStatusVal(d, [
+        'humidity_value',
+        'humidity_indoor',
+        'humidity',
+        'va_humidity',
+        'va_hum',
+        '19'
+      ]);
+
+      const rawMode = getStatusVal(d, ['mode', 'work_mode']);
+
+      let currentTemp = 21.0;
+      if (rawCurrentTemp !== undefined && rawCurrentTemp !== null) {
+        const num = Number(rawCurrentTemp);
+        if (!isNaN(num)) {
+          // Se il valore è un intero superiore a 100 (es. 310 per 31.0°C), dividi per 10
+          currentTemp = num > 100 ? Math.round((num / 10) * 10) / 10 : num;
+        }
+      }
+
+      let targetTemp = 21.0;
+      if (rawTargetTemp !== undefined && rawTargetTemp !== null) {
+        const num = Number(rawTargetTemp);
+        if (!isNaN(num)) {
+          targetTemp = num > 100 ? Math.round((num / 10) * 10) / 10 : num;
+        }
+      }
+
+      const power = rawPower !== undefined ? Boolean(rawPower) : true;
+      const humidity = rawHumidity !== undefined ? Number(rawHumidity) : 50;
+
+      return {
+        power,
+        currentTemp,
+        targetTemp,
+        humidity,
+        mode: rawMode || 'heat',
+        fanSpeed: 'auto'
+      };
+    }
+
     if (Array.isArray(rawDevices) && rawDevices.length > 0) {
       mappedDevices = rawDevices.map((d, index) => {
         const catLower = (d.category || '').toLowerCase();
@@ -136,6 +246,8 @@ export default async function handler(req, res) {
         else if (catLower.includes('cg') || catLower.includes('sensor')) cat = 'sensor';
         else if (catLower.includes('cl') || catLower.includes('curtain')) cat = 'curtains';
         else if (catLower.includes('ka') || catLower.includes('switch')) cat = 'switch';
+
+        const thermoState = cat === 'thermostat' ? extractThermostatData(d) : { power: true, targetTemp: 21, currentTemp: 20.5, humidity: 50, mode: 'heat', fanSpeed: 'auto' };
 
         return {
           id: `tuya-cloud-${d.id || index}`,
@@ -152,9 +264,9 @@ export default async function handler(req, res) {
           state: {
             plug: { power: true, watts: 120, voltage: 230, current: 0.5, totalKwh: 12 },
             light: { power: true, brightness: 100, color: '#ffffff', colorTemp: 4000, mode: 'white' },
-            thermostat: { power: true, targetTemp: 21, currentTemp: 20.5, humidity: 50, mode: 'heat', fanSpeed: 'auto' },
+            thermostat: thermoState,
             camera: { power: true, motionDetected: false, nightVision: true, recording: true, ptzAngleX: 0, ptzAngleY: 0 },
-            sensor: { triggered: false, sensorType: 'temp', temperature: 21, humidity: 50, battery: 95 },
+            sensor: { triggered: false, sensorType: 'temp', temperature: thermoState.currentTemp || 21, humidity: 50, battery: 95 },
           },
         };
       });

@@ -68,7 +68,7 @@ export const INITIAL_DEVICES: SmartDevice[] = [
     state: {
       thermostat: {
         power: true,
-        currentTemp: 21.5,
+        currentTemp: 31.0,
         targetTemp: 22.0,
         humidity: 48,
         mode: 'heat',

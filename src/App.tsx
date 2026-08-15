@@ -1006,39 +1006,6 @@ export default function App() {
         {/* TAB 1: Devices Dashboard */}
         {activeTab === 'devices' && (
           <div className="space-y-6">
-            
-            {/* Apple Home Favorite Scenes Row */}
-            <div>
-              <h2 className="text-xs font-bold text-slate-300 uppercase tracking-wider mb-2.5 flex items-center gap-2">
-                <Sparkles className="w-3.5 h-3.5 text-amber-400" />
-                <span>Scene Preferite</span>
-              </h2>
-
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
-                {automations.map((scene, idx) => {
-                  const isActive = idx === 2; // "A casa" pill highlight like Apple Home
-                  return (
-                    <button
-                      key={scene.id}
-                      onClick={() => handleExecuteTapToRun(scene)}
-                      className={`p-3 rounded-2xl flex items-center gap-2.5 shadow-sm border transition text-left cursor-pointer active:scale-95 ${
-                        isActive
-                          ? 'bg-white/95 backdrop-blur-md border-white/60 shadow-md text-gray-900'
-                          : 'bg-emerald-100/60 backdrop-blur-md border-white/20 text-emerald-950 hover:bg-emerald-100/80'
-                      }`}
-                    >
-                      <div className={`p-1.5 rounded-xl ${isActive ? 'bg-orange-500/20 text-orange-600' : 'bg-emerald-800/10 text-emerald-800'}`}>
-                        <Sparkles className="w-4 h-4" />
-                      </div>
-                      <div>
-                        <h4 className="text-xs font-bold leading-tight line-clamp-1">{scene.title}</h4>
-                      </div>
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
-
             {/* Room Filter Navigation */}
             <RoomFilter
               selectedRoom={selectedRoom}
