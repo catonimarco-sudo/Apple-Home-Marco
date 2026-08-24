@@ -14,6 +14,7 @@ import { AddDeviceModal } from './components/AddDeviceModal';
 import { AddRoomModal } from './components/AddRoomModal';
 import { RoomSettingsModal } from './components/RoomSettingsModal';
 import { WallpaperModal } from './components/WallpaperModal';
+import { VoiceAssistant } from './components/VoiceAssistant';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
   subscribeToDevices, 
@@ -101,6 +102,7 @@ export default function App() {
   const [isRoomSettingsModalOpen, setIsRoomSettingsModalOpen] = useState<boolean>(false);
   const [editingRoomName, setEditingRoomName] = useState<string>('');
   const [isWallpaperModalOpen, setIsWallpaperModalOpen] = useState<boolean>(false);
+  const [isVoiceAssistantOpen, setIsVoiceAssistantOpen] = useState<boolean>(false);
   const [wallpaperUrl, setWallpaperUrl] = useState<string>(() => {
     return localStorage.getItem('smartlife_hub_wallpaper') || '';
   });
@@ -1144,6 +1146,7 @@ export default function App() {
         onOpenAddDeviceModal={() => setIsAddDeviceModalOpen(true)}
         onOpenWallpaperModal={() => setIsWallpaperModalOpen(true)}
         onOpenAddRoomModal={() => setIsAddRoomModalOpen(true)}
+        onOpenVoiceAssistant={() => setIsVoiceAssistantOpen(true)}
         searchQuery={searchQuery}
         setSearchQuery={setSearchQuery}
         totalActiveCount={totalActiveCount}
@@ -1534,6 +1537,19 @@ export default function App() {
         onClose={() => setIsWallpaperModalOpen(false)}
         currentWallpaper={wallpaperUrl}
         onSelectWallpaper={handleSelectWallpaper}
+      />
+
+      {/* Voice Assistant Web Speech Component */}
+      <VoiceAssistant
+        isOpen={isVoiceAssistantOpen}
+        onOpenChange={setIsVoiceAssistantOpen}
+        devices={devices}
+        rooms={allRoomsList}
+        onToggleDevice={handleTogglePower}
+        onTurnOnRoom={handleTurnOnRoom}
+        onTurnOffRoom={handleTurnOffRoom}
+        onUpdateDeviceState={handleUpdateDeviceState}
+        onShowToast={showToast}
       />
     </div>
   );

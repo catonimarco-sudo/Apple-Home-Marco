@@ -15,7 +15,8 @@ import {
   Sparkles,
   Image as ImageIcon,
   Layers,
-  FolderPlus
+  FolderPlus,
+  Mic
 } from 'lucide-react';
 
 interface NavbarProps {
@@ -26,6 +27,7 @@ interface NavbarProps {
   onOpenAddDeviceModal: () => void;
   onOpenWallpaperModal: () => void;
   onOpenAddRoomModal?: () => void;
+  onOpenVoiceAssistant?: () => void;
   searchQuery: string;
   setSearchQuery: (q: string) => void;
   totalActiveCount: number;
@@ -40,6 +42,7 @@ export const Navbar: React.FC<NavbarProps> = ({
   onOpenAddDeviceModal,
   onOpenWallpaperModal,
   onOpenAddRoomModal,
+  onOpenVoiceAssistant,
   searchQuery,
   setSearchQuery,
   totalActiveCount,
@@ -90,6 +93,15 @@ export const Navbar: React.FC<NavbarProps> = ({
 
             {/* Mobile Quick Action Buttons */}
             <div className="flex items-center gap-2 md:hidden">
+              {onOpenVoiceAssistant && (
+                <button
+                  onClick={onOpenVoiceAssistant}
+                  className="p-2 rounded-full bg-amber-400/20 text-amber-300 border border-amber-400/30 hover:bg-amber-400/30 transition"
+                  title="Comando Vocale"
+                >
+                  <Mic className="w-5 h-5" />
+                </button>
+              )}
               <button
                 onClick={onOpenWallpaperModal}
                 className="p-2 rounded-full bg-white/10 text-amber-300 border border-white/15 hover:bg-white/20 transition"
@@ -144,6 +156,17 @@ export const Navbar: React.FC<NavbarProps> = ({
               >
                 <FolderPlus className="w-4 h-4 text-sky-400" />
                 <span className="hidden lg:inline">+ Stanza</span>
+              </button>
+            )}
+
+            {onOpenVoiceAssistant && (
+              <button
+                onClick={onOpenVoiceAssistant}
+                className="flex items-center gap-1.5 bg-amber-400/15 hover:bg-amber-400/25 text-amber-300 font-semibold px-3.5 py-2 rounded-full text-xs border border-amber-400/30 transition cursor-pointer shadow-sm"
+                title="Assistente Vocale Web Speech"
+              >
+                <Mic className="w-4 h-4 text-amber-400" />
+                <span>Voce</span>
               </button>
             )}
 
