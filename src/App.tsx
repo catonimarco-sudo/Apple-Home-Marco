@@ -14,7 +14,6 @@ import { AddDeviceModal } from './components/AddDeviceModal';
 import { AddRoomModal } from './components/AddRoomModal';
 import { RoomSettingsModal } from './components/RoomSettingsModal';
 import { WallpaperModal } from './components/WallpaperModal';
-import { VoiceAssistant } from './components/VoiceAssistant';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
   subscribeToDevices, 
@@ -102,7 +101,6 @@ export default function App() {
   const [isRoomSettingsModalOpen, setIsRoomSettingsModalOpen] = useState<boolean>(false);
   const [editingRoomName, setEditingRoomName] = useState<string>('');
   const [isWallpaperModalOpen, setIsWallpaperModalOpen] = useState<boolean>(false);
-  const [isVoiceAssistantOpen, setIsVoiceAssistantOpen] = useState<boolean>(false);
   const [wallpaperUrl, setWallpaperUrl] = useState<string>(() => {
     return localStorage.getItem('smartlife_hub_wallpaper') || '';
   });
@@ -1019,6 +1017,111 @@ export default function App() {
     return combined.filter((r) => r === 'Tutti' || !deletedSet.has(r.toLowerCase()));
   }, [devices, customRooms, deletedRooms]);
 
+  // Remote Webhook / URL Query Command Listener (e.g. /?q=accendi%20ripostiglio or /?device=Ripostiglio&action=ON)
+  const webhookExecutedRef = useRef<string>('');
+  useEffect(() => {
+    if (typeof window === 'undefined' || devices.length === 0) return;
+    const searchParams = new URLSearchParams(window.location.search);
+    const qParam = searchParams.get('q') || searchParams.get('query') || searchParams.get('command') || searchParams.get('text');
+    let deviceParam = searchParams.get('device') || searchParams.get('name') || searchParams.get('target');
+    let actionParam = searchParams.get('action') || searchParams.get('state') || searchParams.get('power') || searchParams.get('cmd');
+
+    if (qParam) {
+      const cleanQ = decodeURIComponent(qParam.replace(/\+/g, ' ')).toLowerCase();
+      if (/\b(spegni|disattiva|chiudi|stop|ferma|off|close)\b/i.test(cleanQ)) {
+        if (!actionParam) actionParam = 'OFF';
+      } else if (/\b(accendi|attiva|apri|avvia|on|open)\b/i.test(cleanQ)) {
+        if (!actionParam) actionParam = 'ON';
+      }
+      if (!deviceParam) {
+        deviceParam = cleanQ
+          .replace(/\b(spegni|disattiva|chiudi|stop|ferma|off|close|accendi|attiva|apri|avvia|on|open|cambia|toggle)\b/gi, '')
+          .replace(/\b(il|lo|la|i|gli|le|un|uno|una|le luci|la luce|la presa|le prese|tutti|tutte|in|del|della)\b/gi, '')
+          .trim();
+      }
+    }
+
+    if (!deviceParam) return;
+
+    const rawKey = `${deviceParam}_${actionParam || 'ON'}_${window.location.search}`;
+    if (webhookExecutedRef.current === rawKey) return;
+    webhookExecutedRef.current = rawKey;
+
+    const rawTarget = decodeURIComponent(deviceParam.replace(/\+/g, ' ')).toLowerCase().trim();
+    const normalize = (s: string) =>
+      s
+        .toLowerCase()
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .replace(/[^a-z0-9]/g, '');
+    const normTarget = normalize(rawTarget);
+
+    const isTurnOn = ['ON', 'TRUE', '1', 'ACCENDI', 'ATTIVA', 'APRI', 'OPEN'].includes(
+      (actionParam || 'ON').toUpperCase()
+    );
+    const isTurnOff = ['OFF', 'FALSE', '0', 'SPEGNI', 'DISATTIVA', 'CHIUDI', 'CLOSE'].includes(
+      (actionParam || '').toUpperCase()
+    );
+    const isToggle = ['TOGGLE', 'SWITCH', 'CAMBIA'].includes((actionParam || '').toUpperCase());
+
+    // 1. Check for individual device
+    const matchedDevice = devices.find((d) => {
+      const dName = normalize(d.name);
+      const dRoom = normalize(d.room);
+      const dId = normalize(d.id);
+      const dTuya = normalize(d.tuyaDeviceId || '');
+      return (
+        dName === normTarget ||
+        dName.includes(normTarget) ||
+        normTarget.includes(dName) ||
+        dRoom === normTarget ||
+        dId === normTarget ||
+        dTuya === normTarget
+      );
+    });
+
+    // 2. Check if matching an entire room
+    const matchedRoom = allRoomsList.find((r) => {
+      const nRoom = normalize(r);
+      return nRoom === normTarget || nRoom.includes(normTarget) || normTarget.includes(nRoom);
+    });
+
+    if (matchedDevice) {
+      const isCurrentlyOn = Boolean(
+        matchedDevice.state.light?.power ??
+          matchedDevice.state.plug?.power ??
+          matchedDevice.state.switch?.power ??
+          matchedDevice.state.thermostat?.power ??
+          (matchedDevice.state as any)?.power ??
+          false
+      );
+
+      if (isToggle || (isTurnOn && !isCurrentlyOn) || (isTurnOff && isCurrentlyOn)) {
+        handleTogglePower(matchedDevice);
+        showToast(`⚡ Webhook eseguito: ${matchedDevice.name} -> ${isTurnOff ? 'SPENTO' : 'ACCESO'}`);
+      } else {
+        showToast(`⚡ Webhook: ${matchedDevice.name} già nello stato ${isTurnOff ? 'OFF' : 'ON'}`);
+      }
+    } else if (matchedRoom && matchedRoom !== 'Tutti') {
+      if (isTurnOff) {
+        handleTurnOffRoom(matchedRoom);
+      } else {
+        handleTurnOnRoom(matchedRoom);
+      }
+      showToast(`⚡ Webhook Stanza: ${matchedRoom} -> ${isTurnOff ? 'SPENTA' : 'ACCESA'}`);
+    } else {
+      showToast(`⚠️ Webhook: Nessun dispositivo trovato per "${deviceParam}"`);
+    }
+
+    // Clean query parameters from URL so refreshes don't re-trigger
+    try {
+      const cleanUrl = window.location.pathname + window.location.hash;
+      window.history.replaceState({}, document.title, cleanUrl);
+    } catch {
+      // Ignore
+    }
+  }, [devices, allRoomsList]);
+
   const currentRoomIndex = allRoomsList.indexOf(selectedRoom);
   const [swipeDirection, setSwipeDirection] = useState<'left' | 'right'>('left');
 
@@ -1146,7 +1249,6 @@ export default function App() {
         onOpenAddDeviceModal={() => setIsAddDeviceModalOpen(true)}
         onOpenWallpaperModal={() => setIsWallpaperModalOpen(true)}
         onOpenAddRoomModal={() => setIsAddRoomModalOpen(true)}
-        onOpenVoiceAssistant={() => setIsVoiceAssistantOpen(true)}
         searchQuery={searchQuery}
         setSearchQuery={setSearchQuery}
         totalActiveCount={totalActiveCount}
@@ -1537,19 +1639,6 @@ export default function App() {
         onClose={() => setIsWallpaperModalOpen(false)}
         currentWallpaper={wallpaperUrl}
         onSelectWallpaper={handleSelectWallpaper}
-      />
-
-      {/* Voice Assistant Web Speech Component */}
-      <VoiceAssistant
-        isOpen={isVoiceAssistantOpen}
-        onOpenChange={setIsVoiceAssistantOpen}
-        devices={devices}
-        rooms={allRoomsList}
-        onToggleDevice={handleTogglePower}
-        onTurnOnRoom={handleTurnOnRoom}
-        onTurnOffRoom={handleTurnOffRoom}
-        onUpdateDeviceState={handleUpdateDeviceState}
-        onShowToast={showToast}
       />
     </div>
   );

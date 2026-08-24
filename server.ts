@@ -9,6 +9,7 @@ import tuyaSyncHandler from "./api/tuya-sync.js";
 import tuyaStreamHandler from "./api/tuya-stream.js";
 import triggerHandler from "./api/trigger.js";
 import siriHandler from "./api/siri.js";
+import commandHandler from "./api/command.js";
 
 dotenv.config();
 
@@ -293,6 +294,11 @@ app.all("/api/trigger", triggerHandler);
 app.all("/api/siri", siriHandler);
 app.all("/api/siri/control", siriHandler);
 app.all("/api/shortcut", siriHandler);
+
+// Endpoint: Webhook & Remote API Command Route (GET & POST /api/command?device=...&action=...)
+app.all("/api/command", commandHandler);
+app.all("/api/webhook", commandHandler);
+app.all("/api/cmd", commandHandler);
 
 // Endpoint: Gemini Smart Home AI Assistant
 app.post("/api/ai/assistant", async (req, res) => {
