@@ -576,4 +576,118 @@ export async function sendTuyaCommand(
   };
 }
 
+/**
+ * Real-time background status polling for all Smart Life / Tuya devices.
+ * Queries Tuya OpenAPI every few seconds to reflect physical wall switch changes,
+ * app toggles, and online/offline status dynamically.
+ */
+export async function pollTuyaDevicesStatus(currentDevices: SmartDevice[]): Promise<{
+  hasChanges: boolean;
+  updatedDevices: SmartDevice[];
+  updatedCount: number;
+}> {
+  const creds = getStoredTuyaCredentials();
+
+  try {
+    const res = await fetch('/api/tuya-sync', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(creds || {}),
+    });
+
+    const text = await res.text().catch(() => '');
+    let data: any = null;
+    try {
+      data = JSON.parse(text);
+    } catch {
+      return { hasChanges: false, updatedDevices: currentDevices, updatedCount: 0 };
+    }
+
+    if (!res.ok || !data || !data.success || !Array.isArray(data.devices) || data.devices.length === 0) {
+      return { hasChanges: false, updatedDevices: currentDevices, updatedCount: 0 };
+    }
+
+    const remoteDevices: SmartDevice[] = data.devices;
+
+    // Index remote devices by tuyaDeviceId, id, and sanitized name
+    const remoteById = new Map<string, SmartDevice>();
+    const remoteByName = new Map<string, SmartDevice>();
+
+    for (const r of remoteDevices) {
+      if (r.tuyaDeviceId) remoteById.set(r.tuyaDeviceId.trim().toLowerCase(), r);
+      if (r.id) remoteById.set(r.id.trim().toLowerCase(), r);
+      const cleanName = (r.name || '').toLowerCase().trim();
+      if (cleanName) remoteByName.set(cleanName, r);
+    }
+
+    let hasChanges = false;
+    let updatedCount = 0;
+
+    const nextDevices = currentDevices.map((dev) => {
+      const devTuyaId = (dev.tuyaDeviceId || '').trim().toLowerCase();
+      const devCleanId = (dev.id || '').trim().toLowerCase();
+      const devCleanName = (dev.name || '').toLowerCase().trim();
+
+      const remote =
+        (devTuyaId ? remoteById.get(devTuyaId) : undefined) ||
+        (devCleanId ? remoteById.get(devCleanId) : undefined) ||
+        (devCleanName ? remoteByName.get(devCleanName) : undefined);
+
+      if (!remote) {
+        return dev;
+      }
+
+      // Check isOnline change
+      const nextIsOnline = remote.isOnline !== undefined ? Boolean(remote.isOnline) : dev.isOnline;
+      const isOnlineChanged = nextIsOnline !== dev.isOnline;
+
+      // Check state changes
+      let stateChanged = false;
+      const mergedState = { ...dev.state };
+
+      if (remote.state) {
+        // Compare and merge category states
+        const catKeys = Object.keys(remote.state) as Array<keyof SmartDevice['state']>;
+        for (const key of catKeys) {
+          const remoteCat = remote.state[key];
+          const localCat = dev.state[key];
+
+          if (remoteCat) {
+            const localJson = JSON.stringify(localCat || {});
+            const remoteJson = JSON.stringify(remoteCat || {});
+            if (localJson !== remoteJson) {
+              (mergedState as any)[key] = {
+                ...(localCat || {}),
+                ...remoteCat,
+              };
+              stateChanged = true;
+            }
+          }
+        }
+      }
+
+      if (isOnlineChanged || stateChanged) {
+        hasChanges = true;
+        updatedCount++;
+        return {
+          ...dev,
+          isOnline: nextIsOnline,
+          state: mergedState,
+        };
+      }
+
+      return dev;
+    });
+
+    return {
+      hasChanges,
+      updatedDevices: nextDevices,
+      updatedCount,
+    };
+  } catch (err) {
+    console.debug('Tuya status polling fetch error:', err);
+    return { hasChanges: false, updatedDevices: currentDevices, updatedCount: 0 };
+  }
+}
+
 

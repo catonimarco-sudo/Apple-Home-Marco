@@ -31,7 +31,7 @@ export const SmartLifeTransferModal: React.FC<SmartLifeTransferModalProps> = ({
 }) => {
   const [step, setStep] = useState<1 | 2 | 3>(1);
 
-  // Cloud Credentials State
+  // Tuya Cloud Credentials State
   const [clientAccessId, setClientAccessId] = useState<string>('');
   const [clientSecret, setClientSecret] = useState<string>('');
   const [userUid, setUserUid] = useState<string>('');
@@ -57,7 +57,7 @@ export const SmartLifeTransferModal: React.FC<SmartLifeTransferModalProps> = ({
 
   if (!isOpen) return null;
 
-  // Single Action: Connect to Tuya Cloud & Download 37 Devices into Firestore
+  // Cloud OpenAPI Discovery via Tuya / Smart Life Serverless Route
   const handleImportTuyaDevices = async () => {
     setLoading(true);
     setErrorMessage(null);
@@ -119,7 +119,7 @@ export const SmartLifeTransferModal: React.FC<SmartLifeTransferModalProps> = ({
                 </span>
               </h3>
               <p className="text-xs text-slate-400">
-                Collega il tuo account Tuya Cloud per scaricare i 37 dispositivi reali direttamente nel database Firestore dell'app.
+                Collega il tuo account Tuya Cloud per scaricare i dispositivi reali direttamente nel database Firestore.
               </p>
             </div>
           </div>
@@ -137,7 +137,7 @@ export const SmartLifeTransferModal: React.FC<SmartLifeTransferModalProps> = ({
             <div className="p-4 bg-red-500/10 border border-red-500/20 rounded-xl text-red-300 text-xs flex items-start gap-3">
               <AlertCircle className="w-5 h-5 text-red-400 shrink-0 mt-0.5" />
               <div className="space-y-2 flex-1">
-                <span className="font-bold block text-red-200">Errore di Sincronizzazione Tuya</span>
+                <span className="font-bold block text-red-200">Errore di Sincronizzazione</span>
                 <p className="leading-relaxed">{errorMessage}</p>
 
                 {(errorMessage.includes('60001001') || errorMessage.toLowerCase().includes('quota')) && (
@@ -151,7 +151,6 @@ export const SmartLifeTransferModal: React.FC<SmartLifeTransferModalProps> = ({
                       <li>Nel menu laterale, naviga in <strong>Cloud</strong> &gt; <strong>Development</strong> &gt; <strong>My Services</strong> (I Miei Servizi).</li>
                       <li>Trova il servizio <strong>IoT Core</strong> (o <em>Standard Instruction Set</em>).</li>
                       <li>Fai clic su <strong>Extend Trial</strong> (Estendi Prova Gratuita) o <strong>Renew Subscription</strong> per rinnovare l'abbonamento gratuito per altri 6 mesi.</li>
-                      <li>Riprova l'importazione qui sopra: i comandi e la sincronizzazione torneranno a funzionare immediatamente.</li>
                     </ol>
                   </div>
                 )}
@@ -243,8 +242,8 @@ export const SmartLifeTransferModal: React.FC<SmartLifeTransferModalProps> = ({
                   <span>Sincronizzazione Automatica Cloud Firestore</span>
                 </div>
                 <p className="text-xs text-slate-400">
-                  Cliccando su <strong>Importa 37 Dispositivi</strong>, l'app effettuerà la chiamata HTTP autenticata HMAC-SHA256 verso 
-                  <code className="mx-1 font-mono text-emerald-300">https://openapi.tuyaeu.com/v1.0/users/{'{uid}'}/devices</code> e salverà immediatamente tutti i 37 dispositivi reali nel database Cloud Firestore della domotica.
+                  Cliccando su <strong>Importa Dispositivi Tuya</strong>, l'app effettuerà la chiamata HTTP autenticata HMAC-SHA256 verso 
+                  <code className="mx-1 font-mono text-emerald-300">https://openapi.tuyaeu.com/v1.0/users/{'{uid}'}/devices</code> e salverà i dispositivi nel database Cloud Firestore.
                 </p>
               </div>
             </div>
@@ -257,24 +256,20 @@ export const SmartLifeTransferModal: React.FC<SmartLifeTransferModalProps> = ({
               </div>
 
               <div>
-                <h4 className="text-xl font-bold text-white">Importazione Completata!</h4>
+                <h4 className="text-xl font-bold text-white">Sincronizzazione Completata!</h4>
                 <p className="text-xs text-slate-400 mt-1 max-w-md mx-auto">
-                  {importSummary?.message || `37 dispositivi reali Tuya Smart Life sono stati scaricati ed inseriti con successo nel database Cloud Firestore.`}
+                  {importSummary?.message || `I dispositivi sono stati importati ed inseriti con successo nel database Cloud Firestore.`}
                 </p>
               </div>
 
               <div className="p-4 bg-[#0A0A0B] border border-white/5 rounded-2xl max-w-lg mx-auto text-left space-y-3">
                 <div className="flex justify-between text-xs">
                   <span className="text-slate-400">Dispositivi Importati:</span>
-                  <span className="font-bold text-emerald-400">{discoveredDevices.length} / 37 Reali</span>
+                  <span className="font-bold text-emerald-400">{discoveredDevices.length} Dispositivi</span>
                 </div>
                 <div className="flex justify-between text-xs">
                   <span className="text-slate-400">Data Center:</span>
-                  <span className="font-mono text-white">Europe (openapi.tuyaeu.com)</span>
-                </div>
-                <div className="flex justify-between text-xs">
-                  <span className="text-slate-400">UID Account:</span>
-                  <span className="font-mono text-amber-400">{userUid}</span>
+                  <span className="font-mono text-white uppercase">{region} (Europe)</span>
                 </div>
                 <div className="flex justify-between text-xs">
                   <span className="text-slate-400">Destinazione Database:</span>
@@ -309,7 +304,7 @@ export const SmartLifeTransferModal: React.FC<SmartLifeTransferModalProps> = ({
                 </>
               ) : (
                 <>
-                  <span>Importa 37 Dispositivi nel Database Firestore</span>
+                  <span>Importa Dispositivi Tuya nel Database</span>
                   <ArrowRight className="w-4 h-4" />
                 </>
               )}

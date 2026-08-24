@@ -26,7 +26,7 @@ import {
   deleteAutomationFromDb, 
   seedInitialDataIfEmpty 
 } from './services/firebaseService';
-import { sendTuyaCommand } from './services/smartLifeService';
+import { sendTuyaCommand, pollTuyaDevicesStatus } from './services/smartLifeService';
 import { 
   Sparkles, 
   RefreshCw, 
@@ -143,6 +143,67 @@ export default function App() {
     return () => {
       if (unsubscribeDevices) unsubscribeDevices();
       if (unsubscribeAutomations) unsubscribeAutomations();
+    };
+  }, []);
+
+  // Real-time Background Status Polling from Tuya Cloud (Every 3.5s)
+  // Reflects real physical wall switch toggles, third-party app changes, and detects offline devices
+  const devicesRef = useRef(devices);
+  useEffect(() => {
+    devicesRef.current = devices;
+  }, [devices]);
+
+  const isPollingRef = useRef<boolean>(false);
+  useEffect(() => {
+    let isMounted = true;
+
+    const runBackgroundStatusPoll = async () => {
+      if (isPollingRef.current) return;
+      isPollingRef.current = true;
+
+      try {
+        const result = await pollTuyaDevicesStatus(devicesRef.current);
+        if (!isMounted) return;
+
+        if (result.hasChanges) {
+          setDevices(result.updatedDevices);
+
+          // Update active detail modal if the open device changed
+          setSelectedDevice((currentSelected) => {
+            if (!currentSelected) return null;
+            const updated = result.updatedDevices.find((d) => d.id === currentSelected.id);
+            return updated ? { ...currentSelected, ...updated } : currentSelected;
+          });
+
+          // Sync physical switch changes to Firestore DB seamlessly
+          for (const updatedDev of result.updatedDevices) {
+            const prevDev = devicesRef.current.find((d) => d.id === updatedDev.id);
+            if (
+              prevDev &&
+              (prevDev.isOnline !== updatedDev.isOnline ||
+                JSON.stringify(prevDev.state) !== JSON.stringify(updatedDev.state))
+            ) {
+              updateDeviceStateInDb(updatedDev.id, updatedDev.state).catch((dbErr) => {
+                console.debug('Background DB sync notice:', dbErr);
+              });
+            }
+          }
+        }
+      } catch (err) {
+        console.debug('Background status polling exception:', err);
+      } finally {
+        isPollingRef.current = false;
+      }
+    };
+
+    // Initial check after 1.2s, then every 3.5s
+    const initialTimer = setTimeout(runBackgroundStatusPoll, 1200);
+    const pollInterval = setInterval(runBackgroundStatusPoll, 3500);
+
+    return () => {
+      isMounted = false;
+      clearTimeout(initialTimer);
+      clearInterval(pollInterval);
     };
   }, []);
 

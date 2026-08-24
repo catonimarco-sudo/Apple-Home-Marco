@@ -115,10 +115,12 @@ async function fetchTuyaOpenApiDevices(clientAccessId: string, clientSecret: str
   };
 }
 
-// Endpoint: Tuya / Smart Life Cloud API Sync Route
+// Endpoint: Tuya / Smart Life Cloud API Sync & Status Route
 app.all("/api/tuya-sync", tuyaSyncHandler);
 app.all("/api/smart-life/sync", tuyaSyncHandler);
 app.all("/api/tuya/sync", tuyaSyncHandler);
+app.all("/api/tuya-status", tuyaSyncHandler);
+app.all("/api/tuya/status", tuyaSyncHandler);
 
 function formatTuyaError(code: string, rawMsg: string, host: string): string {
   const codeStr = String(code || '');

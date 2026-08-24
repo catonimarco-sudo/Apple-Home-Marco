@@ -251,6 +251,29 @@ export default async function handler(req, res) {
         const isThermostat = cat === 'thermostat' || nameLower.includes('termo') || nameLower.includes('caldaia');
         const thermoState = isThermostat ? extractThermostatData(d) : { power: true, targetTemp: 22, currentTemp: 31.0, humidity: 48, mode: 'heat', fanSpeed: 'auto' };
 
+        const plugPower = Boolean(getStatusVal(d, ['switch_go', 'switch_1', 'switch', '1', 'power']));
+        const lightPower = Boolean(getStatusVal(d, ['switch_led', 'switch_1', 'switch', '20', 'power', 'led_switch', 'switch_led_1']));
+        const lightBright = Number(getStatusVal(d, ['bright_value', 'bright_value_v2', 'brightness', '22']) || 100);
+        const lightColor = String(getStatusVal(d, ['colour_data', 'color']) || '#ffffff');
+        const lightColorTemp = Number(getStatusVal(d, ['temp_value', 'color_temp', '23']) || 4000);
+
+        const sw1 = getStatusVal(d, ['switch_1', '1', 'switch', 'switch_led']);
+        const sw2 = getStatusVal(d, ['switch_2', '2']);
+        const sw3 = getStatusVal(d, ['switch_3', '3']);
+        const sw4 = getStatusVal(d, ['switch_4', '4']);
+        const sw1Val = sw1 !== undefined ? Boolean(sw1) : false;
+        const sw2Val = sw2 !== undefined ? Boolean(sw2) : false;
+        const sw3Val = sw3 !== undefined ? Boolean(sw3) : false;
+        const sw4Val = sw4 !== undefined ? Boolean(sw4) : false;
+        const anySwitchOn = Boolean(sw1Val || sw2Val || sw3Val || sw4Val);
+
+        const isLocked = getStatusVal(d, ['lock', 'door_lock', 'locked', '1']) !== false;
+        const isSensorTriggered = Boolean(getStatusVal(d, ['doorcontact_state', 'motion_state', 'alarm_state', 'watersensor_state', '1']));
+        const isVacuumCleaning = Boolean(getStatusVal(d, ['status', 'mode', 'power_go']) === 'cleaning' || getStatusVal(d, ['status']) === 'smart');
+        const curtainsOpen = Number(getStatusVal(d, ['percent_control', 'position', '1']) || 0);
+
+        const isOnline = d.online !== false && d.online !== undefined ? Boolean(d.online) : true;
+
         return {
           id: `tuya-cloud-${d.id || index}`,
           tuyaDeviceId: d.id || `tuya_${d.sn || index}`,
@@ -258,17 +281,42 @@ export default async function handler(req, res) {
           category: cat,
           room: d.room_name || 'Smart Home',
           vendor: 'Smart Life (Tuya Cloud)',
-          isOnline: d.online ?? true,
+          isOnline,
           signalStrength: -50,
           transferredFromSmartLife: true,
           transferredAt: new Date().toLocaleString('it-IT'),
           ipAddress: d.ip || '192.168.1.100',
           state: {
-            plug: { power: true, watts: 120, voltage: 230, current: 0.5, totalKwh: 12 },
-            light: { power: true, brightness: 100, color: '#ffffff', colorTemp: 4000, mode: 'white' },
+            plug: { 
+              power: plugPower, 
+              watts: Number(getStatusVal(d, ['cur_power', 'watts', '19', '18']) || (plugPower ? 120 : 0)), 
+              voltage: Number(getStatusVal(d, ['cur_voltage', 'voltage', '20']) || 230), 
+              current: Number(getStatusVal(d, ['cur_current', 'current']) || (plugPower ? 0.5 : 0)), 
+              totalKwh: Number(getStatusVal(d, ['add_ele', 'total_forward_energy', '17']) || 12) 
+            },
+            light: { 
+              power: lightPower, 
+              brightness: lightBright, 
+              color: lightColor, 
+              colorTemp: lightColorTemp, 
+              mode: lightColor.startsWith('#') && lightColor !== '#ffffff' ? 'color' : 'white' 
+            },
             thermostat: thermoState,
-            camera: { power: true, motionDetected: false, nightVision: true, recording: true, ptzAngleX: 0, ptzAngleY: 0 },
-            sensor: { triggered: false, sensorType: 'temp', temperature: thermoState.currentTemp || 21, humidity: 50, battery: 95 },
+            camera: { power: Boolean(getStatusVal(d, ['basic_indicator', 'switch', 'power', '1']) ?? true), motionDetected: false, nightVision: true, recording: true, ptzAngleX: 0, ptzAngleY: 0 },
+            sensor: { triggered: isSensorTriggered, sensorType: nameLower.includes('allag') ? 'water' : nameLower.includes('porta') ? 'door' : 'temp', temperature: thermoState.currentTemp || 21, humidity: 50, battery: Number(getStatusVal(d, ['battery_percentage', 'battery', '2']) || 95) },
+            lock: { locked: isLocked, doorClosed: true, battery: 90 },
+            vacuum: { status: isVacuumCleaning ? 'cleaning' : 'docked', battery: 100, suctionPower: 'standard', cleanedAreaSqm: 35, cleaningTimeMinutes: 25 },
+            curtains: { openPercent: curtainsOpen },
+            switch: {
+              power: anySwitchOn,
+              gangs: [sw1Val, sw2Val, sw3Val, sw4Val],
+              channelStates: {
+                switch_1: sw1Val,
+                switch_2: sw2Val,
+                switch_3: sw3Val,
+                switch_4: sw4Val,
+              },
+            },
           },
         };
       });

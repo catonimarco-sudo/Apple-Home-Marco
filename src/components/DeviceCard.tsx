@@ -58,7 +58,8 @@ const IrrigationCard: React.FC<{
   const isZone3 = Boolean(switchState?.channelStates?.switch_3 ?? switchState?.gangs?.[2]);
   const isZone4 = Boolean(switchState?.channelStates?.switch_4 ?? switchState?.gangs?.[3]);
 
-  const activeCount = [isZone1, isZone2, isZone3, isZone4].filter(Boolean).length;
+  const isOnline = device.isOnline !== false;
+  const activeCount = !isOnline ? 0 : [isZone1, isZone2, isZone3, isZone4].filter(Boolean).length;
   const isAnyActive = activeCount > 0;
 
   // Derive schedule info if present
@@ -66,10 +67,10 @@ const IrrigationCard: React.FC<{
   const getChannelSchedule = (dp: string) => schedules.find((s) => s.channel === dp && s.enabled);
 
   const channels = [
-    { dpCode: 'switch_1', num: 1, name: 'Lato Cancellone', active: isZone1, schedule: getChannelSchedule('switch_1') },
-    { dpCode: 'switch_2', num: 2, name: 'Centrale', active: isZone2, schedule: getChannelSchedule('switch_2') },
-    { dpCode: 'switch_3', num: 3, name: 'Lato Cancelletto', active: isZone3, schedule: getChannelSchedule('switch_3') },
-    { dpCode: 'switch_4', num: 4, name: 'Switch 4', active: isZone4, schedule: getChannelSchedule('switch_4') },
+    { dpCode: 'switch_1', num: 1, name: 'Lato Cancellone', active: isOnline && isZone1, schedule: getChannelSchedule('switch_1') },
+    { dpCode: 'switch_2', num: 2, name: 'Centrale', active: isOnline && isZone2, schedule: getChannelSchedule('switch_2') },
+    { dpCode: 'switch_3', num: 3, name: 'Lato Cancelletto', active: isOnline && isZone3, schedule: getChannelSchedule('switch_3') },
+    { dpCode: 'switch_4', num: 4, name: 'Switch 4', active: isOnline && isZone4, schedule: getChannelSchedule('switch_4') },
   ];
 
   const handleToggle = (dpCode: string, currentVal: boolean) => {
@@ -117,7 +118,9 @@ const IrrigationCard: React.FC<{
   return (
     <div
       className={`group relative p-4 sm:p-5 rounded-[24px] flex flex-col justify-between transition-all duration-200 select-none shadow-lg ${
-        isAnyActive
+        !isOnline
+          ? 'bg-black/20 backdrop-blur-md border border-rose-500/20 text-slate-300 opacity-60 grayscale-[30%]'
+          : isAnyActive
           ? 'bg-gradient-to-br from-[#0c1c28] to-[#0a1520] border border-cyan-500/40 text-white shadow-cyan-950/40'
           : 'bg-black/30 backdrop-blur-md border border-white/15 text-white'
       }`}
@@ -127,12 +130,14 @@ const IrrigationCard: React.FC<{
         <div className="flex items-center gap-3 min-w-0">
           <div
             className={`w-10 h-10 rounded-full flex items-center justify-center transition-all shrink-0 ${
-              isAnyActive
+              !isOnline
+                ? 'bg-white/5 border border-rose-500/20 text-slate-400 opacity-60'
+                : isAnyActive
                 ? 'bg-cyan-400 text-slate-950 shadow-md shadow-cyan-400/40 animate-pulse'
                 : 'bg-white/10 border border-white/10 text-cyan-400'
             }`}
           >
-            <Droplets className={`w-5 h-5 ${isAnyActive ? 'fill-slate-950 text-slate-950' : 'fill-cyan-400 text-cyan-400'}`} />
+            <Droplets className={`w-5 h-5 ${!isOnline ? 'text-slate-400' : isAnyActive ? 'fill-slate-950 text-slate-950' : 'fill-cyan-400 text-cyan-400'}`} />
           </div>
           <div className="min-w-0">
             <div className="flex items-center gap-2 flex-wrap">
@@ -142,13 +147,18 @@ const IrrigationCard: React.FC<{
               <span className="text-[10px] font-mono bg-cyan-500/20 text-cyan-300 border border-cyan-500/30 px-2 py-0.5 rounded-full">
                 4CH Tuya
               </span>
+              {!isOnline && (
+                <span className="text-[10px] font-bold bg-rose-500/20 text-rose-300 border border-rose-500/30 px-2 py-0.5 rounded-full">
+                  OFFLINE
+                </span>
+              )}
             </div>
             <div className="flex items-center gap-2 mt-0.5">
               <span className={`text-xs font-black uppercase tracking-wider flex items-center gap-1.5 ${
-                isAnyActive ? 'text-cyan-300' : 'text-slate-400'
+                !isOnline ? 'text-rose-400/80 font-mono text-[10px]' : isAnyActive ? 'text-cyan-300' : 'text-slate-400'
               }`}>
-                <span className={`w-2 h-2 rounded-full ${isAnyActive ? 'bg-cyan-400 animate-ping' : 'bg-slate-500'}`} />
-                {isAnyActive ? `${activeCount} di 4 Zone in Irrigazione` : 'Tutte le zone spente'}
+                <span className={`w-2 h-2 rounded-full ${!isOnline ? 'bg-rose-500' : isAnyActive ? 'bg-cyan-400 animate-ping' : 'bg-slate-500'}`} />
+                {!isOnline ? 'Dispositivo non raggiungibile / Interruttore a monte spento' : isAnyActive ? `${activeCount} di 4 Zone in Irrigazione` : 'Tutte le zone spente'}
               </span>
             </div>
           </div>
@@ -722,8 +732,11 @@ export const DeviceCard: React.FC<DeviceCardProps> = ({
     name.toLowerCase().includes('varco') ||
     name.toLowerCase().includes('portoncino');
 
+  const isOnline = device.isOnline !== false;
+
   // Determine main power status correctly per device category
   const isPowerOn = (() => {
+    if (!isOnline) return false;
     if (isGateOrImpulse) {
       return Boolean(state.switch?.power || state.switch?.gangs?.[0] || (state as any)?.power);
     }
@@ -752,8 +765,11 @@ export const DeviceCard: React.FC<DeviceCardProps> = ({
     }
   })();
 
-  // Apple Home Subtitle status text: Simple ON or OFF
+  // Apple Home Subtitle status text: Simple ON, OFF or OFFLINE
   const getStatusText = () => {
+    if (!isOnline) {
+      return 'OFFLINE';
+    }
     if (!isPowerOn) {
       return 'OFF';
     }
@@ -784,7 +800,9 @@ export const DeviceCard: React.FC<DeviceCardProps> = ({
     // 1. Custom Image Photo if uploaded by user
     if (device.customImageUrl && device.customImageUrl.trim() !== '') {
       return (
-        <div className="w-9 h-9 rounded-full overflow-hidden border border-white/20 shadow-sm flex items-center justify-center bg-black/20">
+        <div className={`w-9 h-9 rounded-full overflow-hidden border shadow-sm flex items-center justify-center ${
+          !isOnline ? 'border-red-500/30 opacity-60 grayscale' : 'border-white/20 bg-black/20'
+        }`}>
           <img 
             src={device.customImageUrl} 
             alt={name} 
@@ -795,13 +813,18 @@ export const DeviceCard: React.FC<DeviceCardProps> = ({
     }
 
     // 2. Circular Badge styling like Apple Home:
+    // When OFFLINE: Dimmed dark circle with muted icon
     // When ON: Solid yellow circle with white/dark icon inside
     // When OFF: Dark circle with bright yellow/amber filled icon inside
-    const badgeClasses = isPowerOn
+    const badgeClasses = !isOnline
+      ? 'w-9 h-9 rounded-full bg-white/5 border border-rose-500/20 flex items-center justify-center opacity-60 transition-all'
+      : isPowerOn
       ? 'w-9 h-9 rounded-full bg-amber-400 flex items-center justify-center shadow-sm transition-all'
       : 'w-9 h-9 rounded-full bg-white/10 border border-white/10 flex items-center justify-center transition-all';
 
-    const iconColor = isPowerOn 
+    const iconColor = !isOnline
+      ? 'text-slate-400 fill-transparent'
+      : isPowerOn 
       ? 'fill-slate-900 text-slate-900' 
       : 'fill-amber-400 text-amber-400 drop-shadow-sm';
 
@@ -817,14 +840,14 @@ export const DeviceCard: React.FC<DeviceCardProps> = ({
     if (iconType === 'plug' || iconType === 'zap') {
       return (
         <div className={badgeClasses}>
-          <Plug className={`w-5 h-5 ${isPowerOn ? 'text-slate-900 font-bold' : 'text-amber-400 font-bold'}`} />
+          <Plug className={`w-5 h-5 ${!isOnline ? 'text-slate-400' : isPowerOn ? 'text-slate-900 font-bold' : 'text-amber-400 font-bold'}`} />
         </div>
       );
     }
     if (iconType === 'fan') {
       return (
         <div className={badgeClasses}>
-          <Fan className={`w-5 h-5 ${isPowerOn ? 'text-slate-900 animate-spin' : 'text-amber-400'}`} />
+          <Fan className={`w-5 h-5 ${!isOnline ? 'text-slate-400' : isPowerOn ? 'text-slate-900 animate-spin' : 'text-amber-400'}`} />
         </div>
       );
     }
@@ -845,14 +868,14 @@ export const DeviceCard: React.FC<DeviceCardProps> = ({
     if (iconType === 'switch' || iconType === 'power') {
       return (
         <div className={badgeClasses}>
-          <Power className={`w-5 h-5 ${isPowerOn ? 'text-slate-900 font-bold' : 'text-amber-400 font-bold'}`} />
+          <Power className={`w-5 h-5 ${!isOnline ? 'text-slate-400' : isPowerOn ? 'text-slate-900 font-bold' : 'text-amber-400 font-bold'}`} />
         </div>
       );
     }
     if (iconType === 'gate' || iconType === 'pulsed_switch' || category === 'gate' || category === 'pulsed_switch' || isGateOrImpulse) {
       return (
         <div className={badgeClasses}>
-          <Key className={`w-5 h-5 ${isPowerOn ? 'text-slate-900 font-bold' : 'text-amber-400 font-bold'}`} />
+          <Key className={`w-5 h-5 ${!isOnline ? 'text-slate-400' : isPowerOn ? 'text-slate-900 font-bold' : 'text-amber-400 font-bold'}`} />
         </div>
       );
     }
@@ -874,7 +897,7 @@ export const DeviceCard: React.FC<DeviceCardProps> = ({
       }
       return (
         <div className={badgeClasses}>
-          <span className={`text-[11px] font-black ${isPowerOn ? 'text-slate-900' : 'text-amber-400'}`}>
+          <span className={`text-[11px] font-black ${!isOnline ? 'text-slate-400' : isPowerOn ? 'text-slate-900' : 'text-amber-400'}`}>
             {displayTemp}
           </span>
         </div>
@@ -884,9 +907,9 @@ export const DeviceCard: React.FC<DeviceCardProps> = ({
       return (
         <div className={badgeClasses}>
           {state.lock?.locked ? (
-            <Lock className={`w-5 h-5 ${isPowerOn ? 'text-slate-900' : 'text-amber-400'}`} />
+            <Lock className={`w-5 h-5 ${!isOnline ? 'text-slate-400' : isPowerOn ? 'text-slate-900' : 'text-amber-400'}`} />
           ) : (
-            <Unlock className={`w-5 h-5 ${isPowerOn ? 'text-slate-900' : 'text-amber-400'}`} />
+            <Unlock className={`w-5 h-5 ${!isOnline ? 'text-slate-400' : isPowerOn ? 'text-slate-900' : 'text-amber-400'}`} />
           )}
         </div>
       );
@@ -916,7 +939,9 @@ export const DeviceCard: React.FC<DeviceCardProps> = ({
     <div
       onClick={() => onTogglePower(device)}
       className={`group relative p-3.5 rounded-[22px] flex flex-col justify-between h-[116px] transition-all duration-200 cursor-pointer select-none active:scale-[0.96] ${
-        isPowerOn
+        !isOnline
+          ? 'bg-black/20 backdrop-blur-md border border-rose-500/20 text-slate-300 opacity-60 grayscale-[30%] hover:opacity-85 shadow-none'
+          : isPowerOn
           ? 'bg-white text-slate-900 border border-slate-100/80 shadow-md hover:shadow-lg hover:bg-white'
           : 'bg-black/25 backdrop-blur-md border border-white/15 text-white hover:bg-black/35 shadow-sm'
       }`}
@@ -927,32 +952,43 @@ export const DeviceCard: React.FC<DeviceCardProps> = ({
           {renderIcon()}
         </div>
 
-        <button
-          type="button"
-          onClick={(e) => {
-            e.stopPropagation();
-            onClickDetail(device);
-          }}
-          className={`p-1 rounded-full transition-colors cursor-pointer ${
-            isPowerOn 
-              ? 'text-slate-400 hover:text-slate-700 hover:bg-slate-100' 
-              : 'text-white/60 hover:text-white hover:bg-white/10'
-          }`}
-          title="Impostazioni e Dettagli"
-        >
-          <Settings className="w-4 h-4" />
-        </button>
+        <div className="flex items-center gap-1">
+          {!isOnline && (
+            <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-md bg-rose-500/20 text-rose-300 border border-rose-500/30">
+              Offline
+            </span>
+          )}
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              onClickDetail(device);
+            }}
+            className={`p-1 rounded-full transition-colors cursor-pointer ${
+              !isOnline
+                ? 'text-slate-400 hover:text-white hover:bg-white/10'
+                : isPowerOn 
+                ? 'text-slate-400 hover:text-slate-700 hover:bg-slate-100' 
+                : 'text-white/60 hover:text-white hover:bg-white/10'
+            }`}
+            title="Impostazioni e Dettagli"
+          >
+            <Settings className="w-4 h-4" />
+          </button>
+        </div>
       </div>
 
       {/* Bottom Row: Title and Status */}
       <div className="pr-1">
         <p className={`font-bold text-xs leading-tight line-clamp-2 ${
-          isPowerOn ? 'text-slate-900' : 'text-white'
+          !isOnline ? 'text-slate-300' : isPowerOn ? 'text-slate-900' : 'text-white'
         }`}>
           {name}
         </p>
         <p className={`text-[11px] mt-0.5 font-bold uppercase tracking-wider ${
-          isPowerOn 
+          !isOnline
+            ? 'text-rose-400/90 font-mono text-[10px]'
+            : isPowerOn 
             ? 'text-amber-600 dark:text-amber-500' 
             : 'text-slate-400'
         }`}>
