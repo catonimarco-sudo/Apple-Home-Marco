@@ -9,6 +9,7 @@ export interface VoiceCommandResult {
   numericValue?: number;
   message: string;
   success: boolean;
+  wakeWordDetected?: boolean;
 }
 
 /**
@@ -25,50 +26,55 @@ export function normalizeText(text: string): string {
     .trim();
 }
 
-// Lista di wakewords facoltative
-const WAKEWORDS = [
-  'my home',
-  'myhome',
-  'ehi siri',
-  'hey siri',
-  'siri',
-  'ok google',
-  'hey google',
-  'alexa',
-  'casa',
-  'ehi casa',
-  'smart life',
-  'smartlife',
-  'domotica',
-  'assistente',
-  'ciao',
-  'per favore',
-  'puoi',
+// Varianti e trascrizioni fonetiche comuni della Wake Word "My Home"
+export const WAKE_PATTERNS = [
+  /\b(my\s*home|myhome|mai\s*om|mai\s*home|my\s*hom|maiom|mai\s*ohm)\b/i,
+  /\b(hey\s*my\s*home|ehi\s*my\s*home|ok\s*my\s*home|ciao\s*my\s*home)\b/i,
+  /\b(ehi\s*siri|hey\s*siri|siri|ok\s*google|hey\s*google|alexa|domotica|smart\s*life)\b/i
 ];
 
 /**
- * Rimuove le wakewords all'inizio della frase
+ * Controlla se la frase contiene la wake word "My Home" e restituisce il comando successivo
  */
-export function stripWakewords(text: string): string {
-  let cleaned = normalizeText(text);
-  let changed = true;
-  while (changed) {
-    changed = false;
-    for (const wake of WAKEWORDS) {
-      if (cleaned.startsWith(wake + ' ')) {
-        cleaned = cleaned.substring(wake.length + 1).trim();
-        changed = true;
-      } else if (cleaned === wake) {
-        cleaned = '';
-        changed = true;
-      }
-    }
+export function extractWakeWordCommand(transcript: string): { 
+  hasWakeWord: boolean; 
+  wakeWord: string; 
+  commandText: string 
+} {
+  const norm = normalizeText(transcript);
+  
+  // Controlla pattern primari "my home"
+  const primaryRegex = /(?:ehi\s+|hey\s+|ok\s+|ciao\s+)?(my\s*home|myhome|mai\s*om|mai\s*home|my\s*hom|maiom)\s*(.*)/i;
+  const match = norm.match(primaryRegex);
+  
+  if (match) {
+    return {
+      hasWakeWord: true,
+      wakeWord: match[1],
+      commandText: match[2]?.trim() || ''
+    };
   }
-  return cleaned;
+
+  // Controlla altri wake word ausiliari
+  const secondaryRegex = /(?:ehi\s+|hey\s+|ok\s+)?(siri|google|alexa|smart\s*life|casa)\s*(.*)/i;
+  const matchSec = norm.match(secondaryRegex);
+  if (matchSec) {
+    return {
+      hasWakeWord: true,
+      wakeWord: matchSec[1],
+      commandText: matchSec[2]?.trim() || ''
+    };
+  }
+
+  return {
+    hasWakeWord: false,
+    wakeWord: '',
+    commandText: norm
+  };
 }
 
 /**
- * Calcola l'indice di similarità tra due stringhe (Jaccard token overlap + substring)
+ * Calcola l'indice di similarità tra due stringhe con tolleranza per iOS / ASR
  */
 function calculateMatchScore(spoken: string, candidate: string): number {
   const normSpoken = normalizeText(spoken);
@@ -76,11 +82,13 @@ function calculateMatchScore(spoken: string, candidate: string): number {
 
   if (!normSpoken || !normCand) return 0;
   if (normSpoken === normCand) return 1.0;
-  if (normSpoken.includes(normCand)) return 0.9;
-  if (normCand.includes(normSpoken)) return 0.85;
+  
+  // Substring esatta o inclusione diretta (es. "luce ripostiglio" include "ripostiglio")
+  if (normSpoken.includes(normCand)) return 0.95;
+  if (normCand.includes(normSpoken)) return 0.90;
 
-  const spokenTokens = normSpoken.split(' ').filter(t => t.length > 2);
-  const candTokens = normCand.split(' ').filter(t => t.length > 2);
+  const spokenTokens = normSpoken.split(' ').filter(t => t.length >= 2);
+  const candTokens = normCand.split(' ').filter(t => t.length >= 2);
 
   if (spokenTokens.length === 0 || candTokens.length === 0) return 0;
 
@@ -103,27 +111,46 @@ function findBestDevice(spokenTarget: string, devices: SmartDevice[]): { device?
 
   const normTarget = normalizeText(spokenTarget);
 
+  // Rimuovi prefissi comuni come "luce", "presa", "faretto", "interruttore"
+  const cleanTarget = normTarget
+    .replace(/^(luce|luci|lampada|lampade|presa|prese|interruttore|faro|faretto|faretti|applique|striscia led|led|dispositivo|termostato|termosifone|termosifoni)\s+/i, '')
+    .trim();
+
   for (const device of devices) {
-    // Prova il nome del dispositivo
-    const nameScore = calculateMatchScore(normTarget, device.name);
+    const devName = normalizeText(device.name);
+    const devRoom = normalizeText(device.room);
+
+    // 1. Confronto diretto sul nome
+    const nameScore = calculateMatchScore(normTarget, devName);
+    const cleanNameScore = calculateMatchScore(cleanTarget, devName);
+
+    // 2. Se il target è il nome della stanza o include la stanza (es. "luce ripostiglio" -> device in stanza "Ripostiglio")
+    let roomScore = 0;
+    if (devRoom && (normTarget.includes(devRoom) || cleanTarget.includes(devRoom) || devRoom.includes(cleanTarget))) {
+      roomScore = 0.85;
+      // Bonus se il dispositivo corrisponde alla categoria menzionata
+      if (normTarget.includes('luce') && device.category === 'light') roomScore = 0.95;
+      if (normTarget.includes('presa') && device.category === 'plug') roomScore = 0.95;
+      if (normTarget.includes('termo') && device.category === 'thermostat') roomScore = 0.95;
+    }
+
+    // 3. Prova nome + stanza (es: "luce cucina")
+    const nameRoomScore = calculateMatchScore(normTarget, `${devName} ${devRoom}`);
     
-    // Prova nome + stanza (es: "luce cucina")
-    const nameRoomScore = calculateMatchScore(normTarget, `${device.name} ${device.room}`);
-    
-    // Prova categoria + stanza (es: "termostato salotto", "presa corridoio", "lampada camera")
-    let catItalian: string = device.category;
-    if (device.category === 'light') catItalian = 'luce lampada applique faro faretti';
+    // 4. Prova categoria + stanza (es: "termostato salotto", "presa corridoio")
+    let catItalian = device.category as string;
+    if (device.category === 'light') catItalian = 'luce lampada applique faro faretti led';
     if (device.category === 'plug') catItalian = 'presa spina ciabatta';
     if (device.category === 'thermostat') catItalian = 'termostato termosifone termosifoni riscaldamento clima';
-    if (device.category === 'gate') catItalian = 'cancello cancelletto portone portoncino';
+    if (device.category === 'gate') catItalian = 'cancello cancelletto portone portoncino varco';
     if (device.category === 'lock') catItalian = 'serratura porta porta ingresso';
     if (device.category === 'vacuum') catItalian = 'robot aspirapolvere robottino';
 
-    const catRoomScore = calculateMatchScore(normTarget, `${catItalian} ${device.room}`);
+    const catRoomScore = calculateMatchScore(normTarget, `${catItalian} ${devRoom}`);
 
-    const maxDevScore = Math.max(nameScore, nameRoomScore, catRoomScore * 0.85);
+    const maxDevScore = Math.max(nameScore, cleanNameScore, roomScore, nameRoomScore, catRoomScore * 0.85);
 
-    if (maxDevScore > highestScore && maxDevScore >= 0.4) {
+    if (maxDevScore > highestScore && maxDevScore >= 0.35) {
       highestScore = maxDevScore;
       bestDevice = device;
     }
@@ -143,8 +170,9 @@ function findBestRoom(spokenTarget: string, rooms: string[]): { room?: string; s
 
   for (const room of rooms) {
     if (room === 'Tutti') continue;
-    const score = calculateMatchScore(normTarget, room);
-    if (score > highestScore && score >= 0.5) {
+    const normRoom = normalizeText(room);
+    const score = calculateMatchScore(normTarget, normRoom);
+    if (score > highestScore && score >= 0.45) {
       highestScore = score;
       bestRoom = room;
     }
@@ -159,17 +187,36 @@ function findBestRoom(spokenTarget: string, rooms: string[]): { room?: string; s
 export function parseVoiceCommand(
   rawTranscript: string,
   devices: SmartDevice[],
-  rooms: string[]
+  rooms: string[],
+  options?: { requireWakeWord?: boolean }
 ): VoiceCommandResult {
-  const cleaned = stripWakewords(rawTranscript);
+  const { hasWakeWord, wakeWord, commandText } = extractWakeWordCommand(rawTranscript);
+
+  // Se è richiesta esplicitamente la wake word e non è stata pronunciata
+  if (options?.requireWakeWord && !hasWakeWord) {
+    return {
+      rawTranscript,
+      action: 'unknown',
+      targetType: 'none',
+      message: 'Pronuncia "My Home" prima del comando (es. "My Home accendi ripostiglio").',
+      success: false,
+      wakeWordDetected: false,
+    };
+  }
+
+  // Prendi la parte di comando effettiva
+  const cleaned = (hasWakeWord ? commandText : normalizeText(rawTranscript))
+    .replace(/^(per favore|puoi|cortesemente|esegui)\s+/i, '')
+    .trim();
 
   if (!cleaned) {
     return {
       rawTranscript,
       action: 'unknown',
       targetType: 'none',
-      message: 'Non ho rilevato alcun comando dopo la parola chiave.',
+      message: 'Comando non rilevato dopo "My Home".',
       success: false,
+      wakeWordDetected: hasWakeWord,
     };
   }
 
@@ -178,6 +225,7 @@ export function parseVoiceCommand(
     cleaned === 'spegni tutto' ||
     cleaned === 'spegni tutta la casa' ||
     cleaned === 'spegni tutti i dispositivi' ||
+    cleaned === 'spegni tutte le luci' ||
     cleaned === 'disattiva tutto' ||
     cleaned === 'tutto off'
   ) {
@@ -187,6 +235,7 @@ export function parseVoiceCommand(
       targetType: 'all',
       message: 'Spegnimento di tutti i dispositivi della casa.',
       success: true,
+      wakeWordDetected: hasWakeWord,
     };
   }
 
@@ -194,6 +243,7 @@ export function parseVoiceCommand(
     cleaned === 'accendi tutto' ||
     cleaned === 'accendi tutta la casa' ||
     cleaned === 'accendi tutti i dispositivi' ||
+    cleaned === 'accendi tutte le luci' ||
     cleaned === 'attiva tutto' ||
     cleaned === 'tutto on'
   ) {
@@ -203,23 +253,24 @@ export function parseVoiceCommand(
       targetType: 'all',
       message: 'Accensione di tutti i dispositivi della casa.',
       success: true,
+      wakeWordDetected: hasWakeWord,
     };
   }
 
   // 2. Riconoscimento Azione Principale
-  const isTurnOn = /^(accendi|attiva|apri|avvia|metti su on|illumina|fai partire|alza)\b/i.test(cleaned);
-  const isTurnOff = /^(spegni|disattiva|chiudi|ferma|stop|metti su off|abbassa)\b/i.test(cleaned);
+  const isTurnOn = /^(accendi|attiva|apri|avvia|metti su on|illumina|fai partire|alza|start)\b/i.test(cleaned);
+  const isTurnOff = /^(spegni|disattiva|chiudi|ferma|stop|metti su off|abbassa|stacca)\b/i.test(cleaned);
   const isSetTemp = /(temperatura|gradi|termostato|scalda|riscaldamento)/i.test(cleaned) && /\d+/.test(cleaned);
   const isSetBrightness = /(luminosita|luce al|percento|%)/i.test(cleaned) && /\d+/.test(cleaned);
 
   // Estrai il bersaglio rimuovendo l'azione iniziale
   let remainder = cleaned
-    .replace(/^(accendi|attiva|apri|avvia|metti su on|illumina|fai partire|alza|spegni|disattiva|chiudi|ferma|stop|metti su off|abbassa|imposta|regola)\s+/i, '')
+    .replace(/^(accendi|attiva|apri|avvia|metti su on|illumina|fai partire|alza|start|spegni|disattiva|chiudi|ferma|stop|metti su off|abbassa|stacca|imposta|regola|cambia)\s+/i, '')
     .trim();
 
   // Rimuovi parole di riempimento come "il", "la", "le", "i", "gli", "lo", "tutti", "tutte", "in", "nel", "nella", "del", "della"
   remainder = remainder
-    .replace(/^(il|lo|la|i|gli|le|un|uno|una|tutti|tutte|i dispositivi in|le luci in|in|nel|nella|nello|negli|nelle|del|della|dello)\s+/i, '')
+    .replace(/^(il|lo|la|i|gli|le|un|uno|una|tutti|tutte|i dispositivi in|le luci in|le luci del|la luce in|la luce del|la presa in|la presa del|in|nel|nella|nello|negli|nelle|del|della|dello)\s+/i, '')
     .trim();
 
   // 3. Gestione Temperatura
@@ -238,6 +289,7 @@ export function parseVoiceCommand(
         ? `Impostata temperatura di ${device.name} a ${tempVal}°C`
         : `Impostata temperatura a ${tempVal}°C`,
       success: true,
+      wakeWordDetected: hasWakeWord,
     };
   }
 
@@ -257,12 +309,13 @@ export function parseVoiceCommand(
         ? `Impostata luminosità di ${device.name} al ${brightVal}%`
         : `Impostata luminosità al ${brightVal}%`,
       success: true,
+      wakeWordDetected: hasWakeWord,
     };
   }
 
-  // 5. Controlla se il bersaglio è una stanza intera (es: "spegni cucina", "accendi salone")
+  // 5. Controlla se il bersaglio è una stanza intera (es: "spegni cucina", "accendi salone", "spegni ripostiglio")
   const roomMatch = findBestRoom(remainder, rooms);
-  if (roomMatch.room && roomMatch.score >= 0.65) {
+  if (roomMatch.room && roomMatch.score >= 0.6) {
     if (isTurnOff) {
       return {
         rawTranscript,
@@ -271,6 +324,7 @@ export function parseVoiceCommand(
         targetRoom: roomMatch.room,
         message: `Spento tutti i dispositivi nella stanza "${roomMatch.room}".`,
         success: true,
+        wakeWordDetected: hasWakeWord,
       };
     } else if (isTurnOn) {
       return {
@@ -280,14 +334,15 @@ export function parseVoiceCommand(
         targetRoom: roomMatch.room,
         message: `Acceso tutti i dispositivi nella stanza "${roomMatch.room}".`,
         success: true,
+        wakeWordDetected: hasWakeWord,
       };
     }
   }
 
   // 6. Controlla se il bersaglio è un dispositivo specifico
-  const devMatch = findBestDevice(remainder, devices);
+  const devMatch = findBestDevice(remainder || cleaned, devices);
 
-  if (devMatch.device && devMatch.score >= 0.4) {
+  if (devMatch.device && devMatch.score >= 0.35) {
     const action = isTurnOff ? 'turn_off' : isTurnOn ? 'turn_on' : 'toggle';
     const actionLabel = action === 'turn_on' ? 'Acceso' : action === 'turn_off' ? 'Spento' : 'Azionato';
 
@@ -298,6 +353,7 @@ export function parseVoiceCommand(
       targetDevice: devMatch.device,
       message: `${actionLabel} "${devMatch.device.name}" (${devMatch.device.room}).`,
       success: true,
+      wakeWordDetected: hasWakeWord,
     };
   }
 
@@ -312,6 +368,7 @@ export function parseVoiceCommand(
         targetDevice: thermo,
         message: `${isTurnOff ? 'Spento' : 'Acceso'} ${thermo.name}.`,
         success: true,
+        wakeWordDetected: hasWakeWord,
       };
     }
   }
@@ -330,6 +387,7 @@ export function parseVoiceCommand(
         targetDevice: gate,
         message: `Aperto ${gate.name}.`,
         success: true,
+        wakeWordDetected: hasWakeWord,
       };
     }
   }
@@ -338,7 +396,8 @@ export function parseVoiceCommand(
     rawTranscript,
     action: 'unknown',
     targetType: 'none',
-    message: `Nessun dispositivo o stanza trovato per: "${rawTranscript}". Prova ad esempio con "Accendi luce salone" o "Spegni garage".`,
+    message: `Nessun dispositivo o stanza trovato per: "${cleaned}". Prova ad esempio con "My Home accendi ripostiglio".`,
     success: false,
+    wakeWordDetected: hasWakeWord,
   };
 }
