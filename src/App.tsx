@@ -1017,67 +1017,112 @@ export default function App() {
     return combined.filter((r) => r === 'Tutti' || !deletedSet.has(r.toLowerCase()));
   }, [devices, customRooms, deletedRooms]);
 
-  // Remote Webhook / URL Query Command Listener (e.g. /?q=accendi%20ripostiglio or /?device=Ripostiglio&action=ON)
+  // Remote Webhook / URL Query Command Listener on App Load (e.g. /?q=accendi%20ripostiglio or /?device=Ripostiglio&action=ON)
   const webhookExecutedRef = useRef<string>('');
   useEffect(() => {
     if (typeof window === 'undefined' || devices.length === 0) return;
     const searchParams = new URLSearchParams(window.location.search);
-    const qParam = searchParams.get('q') || searchParams.get('query') || searchParams.get('command') || searchParams.get('text');
+    const rawQParam = searchParams.get('q') || searchParams.get('query') || searchParams.get('command') || searchParams.get('text');
     let deviceParam = searchParams.get('device') || searchParams.get('name') || searchParams.get('target');
     let actionParam = searchParams.get('action') || searchParams.get('state') || searchParams.get('power') || searchParams.get('cmd');
 
-    if (qParam) {
-      const cleanQ = decodeURIComponent(qParam.replace(/\+/g, ' ')).toLowerCase();
-      if (/\b(spegni|disattiva|chiudi|stop|ferma|off|close)\b/i.test(cleanQ)) {
-        if (!actionParam) actionParam = 'OFF';
-      } else if (/\b(accendi|attiva|apri|avvia|on|open)\b/i.test(cleanQ)) {
-        if (!actionParam) actionParam = 'ON';
+    let originalQueryText = '';
+
+    if (rawQParam) {
+      try {
+        originalQueryText = decodeURIComponent(rawQParam.replace(/\+/g, ' ')).trim();
+      } catch {
+        originalQueryText = rawQParam.replace(/\+/g, ' ').trim();
       }
+
+      const cleanQ = originalQueryText.toLowerCase();
+
+      // Detect action from natural language query
+      if (/\b(spegni|disattiva|chiudi|stop|ferma|stacca|abbassa|off|close)\b/i.test(cleanQ)) {
+        if (!actionParam) actionParam = 'OFF';
+      } else if (/\b(accendi|attiva|apri|avvia|fai partire|illumina|on|open)\b/i.test(cleanQ)) {
+        if (!actionParam) actionParam = 'ON';
+      } else if (/\b(cambia|toggle|switch|inverti)\b/i.test(cleanQ)) {
+        if (!actionParam) actionParam = 'TOGGLE';
+      }
+
       if (!deviceParam) {
         deviceParam = cleanQ
-          .replace(/\b(spegni|disattiva|chiudi|stop|ferma|off|close|accendi|attiva|apri|avvia|on|open|cambia|toggle)\b/gi, '')
-          .replace(/\b(il|lo|la|i|gli|le|un|uno|una|le luci|la luce|la presa|le prese|tutti|tutte|in|del|della)\b/gi, '')
+          .replace(/^(ehi\s+|hey\s+|ok\s+|ciao\s+)?(siri|google|alexa|smart\s*life|casa)\s+/i, '')
+          .replace(/^(per favore\s+|puoi\s+|cortesemente\s+|esegui\s+)/i, '')
+          .replace(/\b(spegni|disattiva|chiudi|stop|ferma|stacca|abbassa|off|close|accendi|attiva|apri|avvia|fai partire|illumina|on|open|cambia|toggle|switch|inverti)\b/gi, ' ')
+          .replace(/\b(il|lo|la|i|gli|le|un|uno|una|tutti|tutte|i dispositivi in|le luci in|le luci del|la luce in|la luce del|la presa in|la presa del|in|nel|nella|nello|negli|nelle|del|della|dello)\b/gi, ' ')
+          .replace(/\s+/g, ' ')
           .trim();
       }
     }
 
-    if (!deviceParam) return;
+    if (!deviceParam && !originalQueryText) return;
 
-    const rawKey = `${deviceParam}_${actionParam || 'ON'}_${window.location.search}`;
+    const rawKey = `${deviceParam || originalQueryText}_${actionParam || 'ON'}_${window.location.search}`;
     if (webhookExecutedRef.current === rawKey) return;
     webhookExecutedRef.current = rawKey;
 
-    const rawTarget = decodeURIComponent(deviceParam.replace(/\+/g, ' ')).toLowerCase().trim();
+    let targetClean = '';
+    try {
+      targetClean = decodeURIComponent((deviceParam || '').replace(/\+/g, ' ')).toLowerCase().trim();
+    } catch {
+      targetClean = (deviceParam || '').replace(/\+/g, ' ').toLowerCase().trim();
+    }
+
     const normalize = (s: string) =>
       s
         .toLowerCase()
         .normalize('NFD')
         .replace(/[\u0300-\u036f]/g, '')
         .replace(/[^a-z0-9]/g, '');
-    const normTarget = normalize(rawTarget);
 
-    const isTurnOn = ['ON', 'TRUE', '1', 'ACCENDI', 'ATTIVA', 'APRI', 'OPEN'].includes(
+    const normTarget = normalize(targetClean);
+
+    const isTurnOn = ['ON', 'TRUE', '1', 'ACCENDI', 'ATTIVA', 'APRI', 'OPEN', 'START'].includes(
       (actionParam || 'ON').toUpperCase()
     );
-    const isTurnOff = ['OFF', 'FALSE', '0', 'SPEGNI', 'DISATTIVA', 'CHIUDI', 'CLOSE'].includes(
+    const isTurnOff = ['OFF', 'FALSE', '0', 'SPEGNI', 'DISATTIVA', 'CHIUDI', 'CLOSE', 'STOP'].includes(
       (actionParam || '').toUpperCase()
     );
-    const isToggle = ['TOGGLE', 'SWITCH', 'CAMBIA'].includes((actionParam || '').toUpperCase());
+    const isToggle = ['TOGGLE', 'SWITCH', 'CAMBIA', 'INVERTI'].includes((actionParam || '').toUpperCase());
 
-    // 1. Check for individual device
+    // Known device alias dictionary for smart matching
+    const aliasMapping: Record<string, string[]> = {
+      ripostiglio: ['ripostiglio', 'luce ripostiglio', 'sgabuzzino'],
+      salone: ['salone', 'luce salone', 'salotto'],
+      cancellone: ['cancellone', 'cancello', 'carraio'],
+      cancelletto: ['cancelletto', 'pedonale', 'portone', 'portoncino'],
+      presa: ['presa', 'presa marco', 'presa wi-fi', 'presa smart'],
+      camera: ['camera', 'camera da letto', 'luce camera'],
+      cucina: ['cucina', 'luce cucina'],
+      giardino: ['giardino', 'irrigazione', 'prato'],
+      termostato: ['termostato', 'caldaia', 'riscaldamento', 'termosifoni', 'termosifone'],
+      garage: ['garage', 'box'],
+      bagno: ['bagno', 'luce bagno'],
+      studio: ['studio', 'ufficio'],
+    };
+
+    // 1. Find device matching by name, room, alias or ID
     const matchedDevice = devices.find((d) => {
       const dName = normalize(d.name);
       const dRoom = normalize(d.room);
       const dId = normalize(d.id);
       const dTuya = normalize(d.tuyaDeviceId || '');
-      return (
-        dName === normTarget ||
-        dName.includes(normTarget) ||
-        normTarget.includes(dName) ||
-        dRoom === normTarget ||
-        dId === normTarget ||
-        dTuya === normTarget
-      );
+
+      if (dName === normTarget || dName.includes(normTarget) || normTarget.includes(dName)) return true;
+      if (dRoom === normTarget || dRoom.includes(normTarget) || normTarget.includes(dRoom)) return true;
+      if (dId === normTarget || dTuya === normTarget) return true;
+
+      for (const [aliasKey, aliases] of Object.entries(aliasMapping)) {
+        if (aliases.some((a) => normalize(a) === normTarget || normTarget.includes(normalize(a)))) {
+          if (dName.includes(normalize(aliasKey)) || dRoom.includes(normalize(aliasKey))) {
+            return true;
+          }
+        }
+      }
+
+      return false;
     });
 
     // 2. Check if matching an entire room
@@ -1086,7 +1131,17 @@ export default function App() {
       return nRoom === normTarget || nRoom.includes(normTarget) || normTarget.includes(nRoom);
     });
 
+    const commandNotificationText = originalQueryText ? `Comando da Siri eseguito: ${originalQueryText}` : '';
+
     if (matchedDevice) {
+      const isGate =
+        matchedDevice.category === 'lock' ||
+        (matchedDevice.name || '').toLowerCase().includes('cancello') ||
+        (matchedDevice.name || '').toLowerCase().includes('cancellone') ||
+        (matchedDevice.name || '').toLowerCase().includes('cancelletto') ||
+        (matchedDevice.name || '').toLowerCase().includes('portone') ||
+        (matchedDevice.name || '').toLowerCase().includes('pedonale');
+
       const isCurrentlyOn = Boolean(
         matchedDevice.state.light?.power ??
           matchedDevice.state.plug?.power ??
@@ -1096,11 +1151,17 @@ export default function App() {
           false
       );
 
-      if (isToggle || (isTurnOn && !isCurrentlyOn) || (isTurnOff && isCurrentlyOn)) {
+      if (isGate) {
+        // Gate pulse action (ON -> 1.5s -> auto-OFF)
         handleTogglePower(matchedDevice);
-        showToast(`⚡ Webhook eseguito: ${matchedDevice.name} -> ${isTurnOff ? 'SPENTO' : 'ACCESO'}`);
+        showToast(commandNotificationText || `⚡ Comando da Siri eseguito: Impulso ${matchedDevice.name}`);
+      } else if (isToggle || (isTurnOn && !isCurrentlyOn) || (isTurnOff && isCurrentlyOn)) {
+        handleTogglePower(matchedDevice);
+        showToast(commandNotificationText || `⚡ Comando da Siri eseguito: ${matchedDevice.name} -> ${isTurnOff ? 'SPENTO' : 'ACCESO'}`);
       } else {
-        showToast(`⚡ Webhook: ${matchedDevice.name} già nello stato ${isTurnOff ? 'OFF' : 'ON'}`);
+        // Already in target state, re-trigger or confirm
+        handleTogglePower(matchedDevice);
+        showToast(commandNotificationText || `⚡ Comando da Siri eseguito: ${matchedDevice.name} (${isTurnOff ? 'OFF' : 'ON'})`);
       }
     } else if (matchedRoom && matchedRoom !== 'Tutti') {
       if (isTurnOff) {
@@ -1108,12 +1169,12 @@ export default function App() {
       } else {
         handleTurnOnRoom(matchedRoom);
       }
-      showToast(`⚡ Webhook Stanza: ${matchedRoom} -> ${isTurnOff ? 'SPENTA' : 'ACCESA'}`);
+      showToast(commandNotificationText || `⚡ Comando da Siri eseguito: Stanza ${matchedRoom} -> ${isTurnOff ? 'SPENTA' : 'ACCESA'}`);
     } else {
-      showToast(`⚠️ Webhook: Nessun dispositivo trovato per "${deviceParam}"`);
+      showToast(commandNotificationText ? `${commandNotificationText} (Dispositivo: "${targetClean || originalQueryText}")` : `⚠️ Nessun dispositivo trovato per "${targetClean}"`);
     }
 
-    // Clean query parameters from URL so refreshes don't re-trigger
+    // Clean query parameters from URL without reloading so refreshes don't re-trigger
     try {
       const cleanUrl = window.location.pathname + window.location.hash;
       window.history.replaceState({}, document.title, cleanUrl);
