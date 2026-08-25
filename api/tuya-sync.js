@@ -159,10 +159,24 @@ export default async function handler(req, res) {
       ? devicesData.result.list
       : [];
 
-    // 3. Query /v1.0/devices/{device_id}/status for every device to get realtime status DPs
-    if (rawDevices.length > 0) {
+    const targetDeviceIds = Array.isArray(req.body?.targetDeviceIds) && req.body.targetDeviceIds.length > 0
+      ? req.body.targetDeviceIds.map(String).map((s) => s.toLowerCase().trim())
+      : null;
+
+    // 3. Query /v1.0/devices/{device_id}/status for target devices (or all devices if no target list provided)
+    const devicesToFetchStatus = targetDeviceIds
+      ? rawDevices.filter((d) => {
+          if (!d) return false;
+          const dId = (d.id || '').toLowerCase().trim();
+          const dTuyaId = (d.tuyaDeviceId || '').toLowerCase().trim();
+          const dName = (d.name || '').toLowerCase().trim();
+          return targetDeviceIds.includes(dId) || targetDeviceIds.includes(dTuyaId) || targetDeviceIds.includes(dName);
+        })
+      : rawDevices;
+
+    if (devicesToFetchStatus.length > 0) {
       await Promise.allSettled(
-        rawDevices.map(async (d) => {
+        devicesToFetchStatus.map(async (d) => {
           if (!d || !d.id) return;
           try {
             const tStatus = Date.now().toString();

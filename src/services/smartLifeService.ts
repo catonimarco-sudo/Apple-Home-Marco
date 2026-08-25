@@ -577,7 +577,10 @@ export async function sendTuyaCommand(
  * Queries Tuya OpenAPI every few seconds to reflect physical wall switch changes,
  * app toggles, and online/offline status dynamically.
  */
-export async function pollTuyaDevicesStatus(currentDevices: SmartDevice[]): Promise<{
+export async function pollTuyaDevicesStatus(
+  currentDevices: SmartDevice[],
+  targetDeviceIds?: string[]
+): Promise<{
   hasChanges: boolean;
   updatedDevices: SmartDevice[];
   updatedCount: number;
@@ -585,10 +588,15 @@ export async function pollTuyaDevicesStatus(currentDevices: SmartDevice[]): Prom
   const creds = getStoredTuyaCredentials();
 
   try {
+    const payload: any = { ...(creds || {}) };
+    if (targetDeviceIds && targetDeviceIds.length > 0) {
+      payload.targetDeviceIds = targetDeviceIds;
+    }
+
     const res = await fetch('/api/tuya-sync', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(creds || {}),
+      body: JSON.stringify(payload),
     });
 
     const text = await res.text().catch(() => '');

@@ -51,13 +51,11 @@ import {
 // ============================================================================
 // CONFIGURAZIONE POLLING & SINCRONIZZAZIONE TUYA CLOUD
 // ============================================================================
-// Flag booleana per abilitare/disabilitare il polling automatico continuo in background.
-// Impostare a 'false' per azzerare il consumo della quota API Tuya Trial.
-// Quando è 'false', l'aggiornamento avviene solo su richiesta manuale ("Sincronizza Tuya") o al cambio stanza.
-export const ENABLE_AUTO_POLLING = false;
+// Flag booleana per abilitare il polling automatico continuo in background (3-5s).
+export const ENABLE_AUTO_POLLING = true;
 
-// Intervallo di polling automatico (in ms). Impostato a 60 secondi (60000ms).
-export const POLLING_INTERVAL = 60000;
+// Intervallo di polling automatico (in ms). Impostato a 4 secondi (4000ms).
+export const POLLING_INTERVAL = 4000;
 
 export default function App() {
   // Devices and Automations synced real-time from Firestore Cloud DB
@@ -157,23 +155,67 @@ export default function App() {
     };
   }, []);
 
-  // Status Synchronization from Tuya Cloud (Manual & Configurable Polling)
+  // Status Synchronization from Tuya Cloud (Manual, Interval Polling & Focus Sync)
   // Reflects real physical wall switch toggles, third-party app changes, and detects offline devices
   const devicesRef = useRef(devices);
   useEffect(() => {
     devicesRef.current = devices;
   }, [devices]);
 
+  // Calcolo e tracking dei dispositivi visibili a schermo per ottimizzare le chiamate API
+  const visibleDeviceIdsRef = useRef<string[]>([]);
+  useEffect(() => {
+    let ids: string[] = [];
+    const modalId = selectedDevice?.id || selectedDevice?.tuyaDeviceId;
+
+    if (activeTab === 'devices') {
+      ids = devices
+        .filter((dev) => {
+          const matchesRoom = selectedRoom === 'Tutti' || dev.room === selectedRoom;
+          const matchesSearch =
+            !searchQuery.trim() ||
+            dev.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+            dev.room.toLowerCase().includes(searchQuery.toLowerCase()) ||
+            dev.category.toLowerCase().includes(searchQuery.toLowerCase());
+          return matchesRoom && matchesSearch;
+        })
+        .map((d) => d.id || d.tuyaDeviceId)
+        .filter(Boolean) as string[];
+    } else if (activeTab === 'rooms') {
+      if (selectedRoom !== 'Tutti') {
+        ids = devices
+          .filter((d) => d.room === selectedRoom)
+          .map((d) => d.id || d.tuyaDeviceId)
+          .filter(Boolean) as string[];
+      } else {
+        ids = devices.map((d) => d.id || d.tuyaDeviceId).filter(Boolean) as string[];
+      }
+    } else if (activeTab === 'energy') {
+      ids = devices
+        .filter((d) => d.category === 'plug' || d.category === 'thermostat' || d.energy)
+        .map((d) => d.id || d.tuyaDeviceId)
+        .filter(Boolean) as string[];
+    } else {
+      ids = devices.map((d) => d.id || d.tuyaDeviceId).filter(Boolean) as string[];
+    }
+
+    if (modalId && !ids.includes(modalId)) {
+      ids.push(modalId);
+    }
+    visibleDeviceIdsRef.current = ids;
+  }, [devices, activeTab, selectedRoom, searchQuery, selectedDevice]);
+
   const isPollingRef = useRef<boolean>(false);
   const [isManualSyncing, setIsManualSyncing] = useState<boolean>(false);
 
-  const handleSyncTuyaStatus = async (isManual = false) => {
+  const handleSyncTuyaStatus = async (isManual = false, explicitTargetIds?: string[]) => {
     if (isPollingRef.current) return;
     isPollingRef.current = true;
     if (isManual) setIsManualSyncing(true);
 
     try {
-      const result = await pollTuyaDevicesStatus(devicesRef.current);
+      const targetIds = isManual ? undefined : (explicitTargetIds || visibleDeviceIdsRef.current);
+      const result = await pollTuyaDevicesStatus(devicesRef.current, targetIds);
 
       if (result.hasChanges) {
         setDevices(result.updatedDevices);
@@ -218,7 +260,7 @@ export default function App() {
     }
   };
 
-  // Polling automatico in background (Attivo SOLO se ENABLE_AUTO_POLLING === true)
+  // Interval Polling: interroga ogni 4 secondi lo stato dei dispositivi visibili
   useEffect(() => {
     if (!ENABLE_AUTO_POLLING) {
       return;
@@ -226,17 +268,40 @@ export default function App() {
 
     let isMounted = true;
     const initialTimer = setTimeout(() => {
-      if (isMounted) handleSyncTuyaStatus(false);
-    }, 2000);
+      if (isMounted && typeof document !== 'undefined' && document.visibilityState === 'visible') {
+        handleSyncTuyaStatus(false);
+      }
+    }, 1200);
 
     const pollInterval = setInterval(() => {
-      if (isMounted) handleSyncTuyaStatus(false);
+      if (isMounted && typeof document !== 'undefined' && document.visibilityState === 'visible') {
+        handleSyncTuyaStatus(false);
+      }
     }, POLLING_INTERVAL);
 
     return () => {
       isMounted = false;
       clearTimeout(initialTimer);
       clearInterval(pollInterval);
+    };
+  }, []);
+
+  // Focus Sync: Sincronizzazione immediata quando l'utente riapre o riporta l'app in primo piano
+  useEffect(() => {
+    const handleFocusOrVisibility = () => {
+      if (typeof document !== 'undefined' && document.visibilityState === 'visible') {
+        handleSyncTuyaStatus(false);
+      }
+    };
+
+    window.addEventListener('focus', handleFocusOrVisibility);
+    window.addEventListener('pageshow', handleFocusOrVisibility);
+    document.addEventListener('visibilitychange', handleFocusOrVisibility);
+
+    return () => {
+      window.removeEventListener('focus', handleFocusOrVisibility);
+      window.removeEventListener('pageshow', handleFocusOrVisibility);
+      document.removeEventListener('visibilitychange', handleFocusOrVisibility);
     };
   }, []);
 
