@@ -27,6 +27,7 @@ import {
   seedInitialDataIfEmpty 
 } from './services/firebaseService';
 import { sendTuyaCommand, pollTuyaDevicesStatus } from './services/smartLifeService';
+import { safeStorage } from './utils/safeStorage';
 import { 
   Sparkles, 
   RefreshCw, 
@@ -71,20 +72,20 @@ export default function App() {
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [isEditMode, setIsEditMode] = useState<boolean>(false);
 
-  // Custom Rooms list (persisted in localStorage)
+  // Custom Rooms list (persisted in safeStorage)
   const [customRooms, setCustomRooms] = useState<string[]>(() => {
     try {
-      const saved = localStorage.getItem('smartlife_hub_custom_rooms');
+      const saved = safeStorage.getItem('smartlife_hub_custom_rooms');
       return saved ? JSON.parse(saved) : [];
     } catch {
       return [];
     }
   });
 
-  // Deleted Rooms list (persisted in localStorage)
+  // Deleted Rooms list (persisted in safeStorage)
   const [deletedRooms, setDeletedRooms] = useState<string[]>(() => {
     try {
-      const saved = localStorage.getItem('smartlife_hub_deleted_rooms');
+      const saved = safeStorage.getItem('smartlife_hub_deleted_rooms');
       return saved ? JSON.parse(saved) : [];
     } catch {
       return [];
@@ -94,7 +95,7 @@ export default function App() {
   // Room Configurations (icons & dedicated wallpapers)
   const [roomConfigs, setRoomConfigs] = useState<Record<string, RoomConfig>>(() => {
     try {
-      const saved = localStorage.getItem('smartlife_hub_room_configs');
+      const saved = safeStorage.getItem('smartlife_hub_room_configs');
       return saved ? JSON.parse(saved) : {};
     } catch {
       return {};
@@ -111,15 +112,15 @@ export default function App() {
   const [editingRoomName, setEditingRoomName] = useState<string>('');
   const [isWallpaperModalOpen, setIsWallpaperModalOpen] = useState<boolean>(false);
   const [wallpaperUrl, setWallpaperUrl] = useState<string>(() => {
-    return localStorage.getItem('smartlife_hub_wallpaper') || '';
+    return safeStorage.getItem('smartlife_hub_wallpaper') || '';
   });
 
   const handleSelectWallpaper = (url: string) => {
     setWallpaperUrl(url);
     if (url) {
-      localStorage.setItem('smartlife_hub_wallpaper', url);
+      safeStorage.setItem('smartlife_hub_wallpaper', url);
     } else {
-      localStorage.removeItem('smartlife_hub_wallpaper');
+      safeStorage.removeItem('smartlife_hub_wallpaper');
     }
   };
 
@@ -815,10 +816,10 @@ export default function App() {
     showToast(`Scena "${rule.title}" eseguita.`);
   };
 
-  // Custom Drag-and-Drop Order for Dashboard Devices (saved in localStorage 'dashboard_device_order')
+  // Custom Drag-and-Drop Order for Dashboard Devices (saved in safeStorage 'dashboard_device_order')
   const [deviceOrder, setDeviceOrder] = useState<string[]>(() => {
     try {
-      const saved = localStorage.getItem('dashboard_device_order');
+      const saved = safeStorage.getItem('dashboard_device_order');
       return saved ? JSON.parse(saved) : [];
     } catch {
       return [];
@@ -871,9 +872,9 @@ export default function App() {
 
       setDeviceOrder(fullOrder);
       try {
-        localStorage.setItem('dashboard_device_order', JSON.stringify(fullOrder));
+        safeStorage.setItem('dashboard_device_order', JSON.stringify(fullOrder));
       } catch (err) {
-        console.warn('LocalStorage save error:', err);
+        console.warn('Storage save error:', err);
       }
       showToast('Nuovo ordine dispositivi salvato!');
     }
@@ -889,7 +890,7 @@ export default function App() {
 
   const handleResetDeviceOrder = () => {
     setDeviceOrder([]);
-    localStorage.removeItem('dashboard_device_order');
+    safeStorage.removeItem('dashboard_device_order');
     showToast('Ordine originale dei dispositivi ripristinato.');
   };
 
@@ -913,9 +914,9 @@ export default function App() {
     setRoomConfigs(updatedConfigs);
 
     try {
-      localStorage.setItem('smartlife_hub_custom_rooms', JSON.stringify(updatedCustom));
-      localStorage.setItem('smartlife_hub_deleted_rooms', JSON.stringify(updatedDeleted));
-      localStorage.setItem('smartlife_hub_room_configs', JSON.stringify(updatedConfigs));
+      safeStorage.setItem('smartlife_hub_custom_rooms', JSON.stringify(updatedCustom));
+      safeStorage.setItem('smartlife_hub_deleted_rooms', JSON.stringify(updatedDeleted));
+      safeStorage.setItem('smartlife_hub_room_configs', JSON.stringify(updatedConfigs));
     } catch (e) {
       console.warn('Could not persist custom rooms:', e);
     }
@@ -971,12 +972,12 @@ export default function App() {
       setSelectedRoom(newConfig.name as RoomName);
     }
 
-    // 5. Persist to localStorage
+    // 5. Persist to safeStorage
     try {
-      localStorage.setItem('smartlife_hub_custom_rooms', JSON.stringify(updatedCustom));
-      localStorage.setItem('smartlife_hub_room_configs', JSON.stringify(updatedConfigs));
+      safeStorage.setItem('smartlife_hub_custom_rooms', JSON.stringify(updatedCustom));
+      safeStorage.setItem('smartlife_hub_room_configs', JSON.stringify(updatedConfigs));
     } catch (err) {
-      console.warn('LocalStorage save error:', err);
+      console.warn('Storage save error:', err);
     }
 
     // 6. Sync updated devices to Cloud DB
@@ -1018,13 +1019,13 @@ export default function App() {
       setSelectedRoom('Tutti');
     }
 
-    // 6. Save to localStorage
+    // 6. Save to safeStorage
     try {
-      localStorage.setItem('smartlife_hub_deleted_rooms', JSON.stringify(updatedDeleted));
-      localStorage.setItem('smartlife_hub_custom_rooms', JSON.stringify(updatedCustom));
-      localStorage.setItem('smartlife_hub_room_configs', JSON.stringify(updatedConfigs));
+      safeStorage.setItem('smartlife_hub_deleted_rooms', JSON.stringify(updatedDeleted));
+      safeStorage.setItem('smartlife_hub_custom_rooms', JSON.stringify(updatedCustom));
+      safeStorage.setItem('smartlife_hub_room_configs', JSON.stringify(updatedConfigs));
     } catch (e) {
-      console.warn('LocalStorage error on room deletion:', e);
+      console.warn('Storage error on room deletion:', e);
     }
 
     // 7. Save affected devices to Firestore DB

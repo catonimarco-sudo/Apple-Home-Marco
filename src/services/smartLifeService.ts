@@ -1,5 +1,6 @@
 import CryptoJS from 'crypto-js';
 import { SmartDevice, ImportResult, TuyaCloudCredentials, RoomName, DeviceCategory } from '../types';
+import { safeStorage } from '../utils/safeStorage';
 
 /**
  * Helper to map Tuya device category codes to our standard categories
@@ -239,25 +240,25 @@ export async function syncTuyaCloudApi(credentials: TuyaCloudCredentials): Promi
 }
 
 /**
- * Manage stored Tuya credentials in LocalStorage
+ * Manage stored Tuya credentials in safeStorage (LocalStorage + Memory + Cookie Fallback)
  */
 export function getStoredTuyaCredentials(): TuyaCloudCredentials | null {
   try {
-    const saved = localStorage.getItem('tuya_credentials');
+    const saved = safeStorage.getItem('tuya_credentials');
     if (saved) {
       return JSON.parse(saved);
     }
   } catch (e) {
-    console.error('Error reading tuya credentials from localStorage', e);
+    console.error('Error reading tuya credentials from storage', e);
   }
   return null;
 }
 
 export function saveStoredTuyaCredentials(credentials: TuyaCloudCredentials): void {
   try {
-    localStorage.setItem('tuya_credentials', JSON.stringify(credentials));
+    safeStorage.setItem('tuya_credentials', JSON.stringify(credentials));
   } catch (e) {
-    console.error('Error saving tuya credentials to localStorage', e);
+    console.error('Error saving tuya credentials to storage', e);
   }
 }
 
@@ -509,7 +510,8 @@ export async function sendTuyaCommand(
     realCode = 'switch_go';
   }
 
-  // 1. Try backend serverless route /api/tuya-command
+  // 1. Exclusively execute via Backend Serverless API Route (/api/tuya-command)
+  // Ensures compatibility with Samsung Family Hub (Tizen WebKit) avoiding CORS and browser crypto HMAC limits
   try {
     const res = await fetch('/api/tuya-command', {
       method: 'POST',
@@ -530,45 +532,47 @@ export async function sendTuyaCommand(
       }),
     });
 
-    // Safely check if response is valid JSON
     const text = await res.text().catch(() => '');
     let data: any = null;
     try {
       data = JSON.parse(text);
     } catch {
-      // Not JSON, might be 404 HTML or empty, ignore and fallback to client-side
+      // Non-JSON response
     }
 
-    if (res.ok && data) {
-      if (data.success) {
-        return {
-          success: true,
-          message: data.message || `Comando '${realCode}' inviato con successo`,
-        };
-      } else if (data.code || data.message) {
-        return {
-          success: false,
-          statusCode: res.status,
-          message: data.message || 'Errore durante l\'esecuzione del comando',
-        };
-      }
+    if (res.ok && data && data.success) {
+      return {
+        success: true,
+        message: data.message || `Comando '${realCode}' inviato con successo a Tuya Cloud`,
+      };
     }
-  } catch (backendErr) {
-    console.warn('Backend /api/tuya-command call skipped/failed, trying direct client-side call', backendErr);
-  }
 
-  // 2. Direct client-side proxy fallback using crypto-js
-  const directResult = await sendTuyaCommandDirectClientSide(deviceId, realCode, realValue, creds, options);
-  if (directResult.success) {
+    if (data && (data.message || data.msg)) {
+      return {
+        success: false,
+        statusCode: res.status,
+        message: data.message || data.msg || 'Errore durante l\'esecuzione del comando',
+      };
+    }
+
+    if (!res.ok) {
+      return {
+        success: false,
+        statusCode: res.status,
+        message: `Errore serverless ${res.status}: Impossibile contattare il gateway Tuya`,
+      };
+    }
+  } catch (backendErr: any) {
+    console.error('Errore chiamata serverless /api/tuya-command:', backendErr);
     return {
-      success: true,
-      message: directResult.message,
+      success: false,
+      message: `Errore di rete serverless: ${backendErr?.message || 'Impossibile raggiungere il server'}`,
     };
   }
 
   return {
     success: false,
-    message: directResult.message || 'Impossibile contattare il server Tuya',
+    message: 'Impossibile completare il comando Tuya',
   };
 }
 

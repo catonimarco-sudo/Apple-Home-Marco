@@ -1,4 +1,5 @@
 import Hls from 'hls.js';
+import { safeStorage } from './utils/safeStorage';
 
 /**
  * Tuya WebRTC & Cloud Camera Configuration
@@ -27,15 +28,15 @@ export const DEFAULT_TUYA_CONFIG: TuyaCameraConfig = {
 const GLOBAL_STORAGE_KEY = 'tuya_camera_config';
 
 /**
- * Retrieve saved Tuya camera configuration from LocalStorage (global or device-specific)
+ * Retrieve saved Tuya camera configuration from safeStorage (global or device-specific)
  */
 export function getTuyaConfig(deviceId?: string): TuyaCameraConfig {
   try {
-    const globalStored = localStorage.getItem(GLOBAL_STORAGE_KEY);
+    const globalStored = safeStorage.getItem(GLOBAL_STORAGE_KEY);
     const globalConfig = globalStored ? JSON.parse(globalStored) : {};
 
     if (deviceId) {
-      const deviceStored = localStorage.getItem(`tuya_camera_config_${deviceId}`);
+      const deviceStored = safeStorage.getItem(`tuya_camera_config_${deviceId}`);
       if (deviceStored) {
         const deviceConfig = JSON.parse(deviceStored);
         return {
@@ -53,13 +54,13 @@ export function getTuyaConfig(deviceId?: string): TuyaCameraConfig {
     }
     return { ...DEFAULT_TUYA_CONFIG, ...globalConfig };
   } catch (e) {
-    console.error('Error reading tuya_camera_config from localStorage:', e);
+    console.error('Error reading tuya_camera_config from storage:', e);
   }
   return DEFAULT_TUYA_CONFIG;
 }
 
 /**
- * Save Tuya camera configuration to LocalStorage (global and per-device)
+ * Save Tuya camera configuration to safeStorage (global and per-device)
  */
 export function saveTuyaConfig(config: Partial<TuyaCameraConfig>, deviceId?: string): TuyaCameraConfig {
   try {
@@ -68,7 +69,7 @@ export function saveTuyaConfig(config: Partial<TuyaCameraConfig>, deviceId?: str
     const updatedGlobal = { ...currentGlobal, ...config };
 
     // Save global API credentials
-    localStorage.setItem(
+    safeStorage.setItem(
       GLOBAL_STORAGE_KEY,
       JSON.stringify({
         clientId: updatedGlobal.clientId,
@@ -81,13 +82,13 @@ export function saveTuyaConfig(config: Partial<TuyaCameraConfig>, deviceId?: str
     if (targetDeviceId) {
       const currentDevice = getTuyaConfig(targetDeviceId);
       const updatedDevice = { ...currentDevice, ...config, deviceId: targetDeviceId };
-      localStorage.setItem(`tuya_camera_config_${targetDeviceId}`, JSON.stringify(updatedDevice));
+      safeStorage.setItem(`tuya_camera_config_${targetDeviceId}`, JSON.stringify(updatedDevice));
       return updatedDevice;
     }
 
     return updatedGlobal;
   } catch (e) {
-    console.error('Error saving tuya_camera_config to localStorage:', e);
+    console.error('Error saving tuya_camera_config to storage:', e);
     return DEFAULT_TUYA_CONFIG;
   }
 }
