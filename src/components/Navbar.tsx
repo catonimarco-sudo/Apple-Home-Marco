@@ -26,6 +26,8 @@ interface NavbarProps {
   onOpenAddDeviceModal: () => void;
   onOpenWallpaperModal: () => void;
   onOpenAddRoomModal?: () => void;
+  onManualSync?: () => void;
+  isManualSyncing?: boolean;
   searchQuery: string;
   setSearchQuery: (q: string) => void;
   totalActiveCount: number;
@@ -40,6 +42,8 @@ export const Navbar: React.FC<NavbarProps> = ({
   onOpenAddDeviceModal,
   onOpenWallpaperModal,
   onOpenAddRoomModal,
+  onManualSync,
+  isManualSyncing = false,
   searchQuery,
   setSearchQuery,
   totalActiveCount,
@@ -54,13 +58,26 @@ export const Navbar: React.FC<NavbarProps> = ({
           <span className="font-bold text-amber-400">Sincronizzazione Live Firestore & Tuya Cloud API</span>
           <span className="hidden sm:inline text-slate-300">• Apple Home Architecture</span>
         </div>
-        <button
-          onClick={onOpenTransferModal}
-          className="flex items-center gap-1.5 bg-amber-400 hover:bg-amber-300 text-slate-950 font-extrabold px-3 py-0.5 rounded-full text-xs transition-all cursor-pointer shadow-md shadow-amber-400/10"
-        >
-          <RefreshCw className="w-3 h-3 animate-spin-slow" />
-          <span>Configura Credenziali Tuya</span>
-        </button>
+        <div className="flex items-center gap-2">
+          {onManualSync && (
+            <button
+              onClick={onManualSync}
+              disabled={isManualSyncing}
+              className="flex items-center gap-1.5 bg-slate-800 hover:bg-slate-700 text-amber-300 border border-amber-500/30 font-bold px-3 py-0.5 rounded-full text-xs transition-all cursor-pointer shadow-sm disabled:opacity-50"
+              title="Aggiorna manualmente lo stato da Tuya Cloud"
+            >
+              <RefreshCw className={`w-3 h-3 ${isManualSyncing ? 'animate-spin text-amber-400' : ''}`} />
+              <span>{isManualSyncing ? 'Sincronizzazione...' : 'Sincronizza Tuya'}</span>
+            </button>
+          )}
+          <button
+            onClick={onOpenTransferModal}
+            className="flex items-center gap-1.5 bg-amber-400 hover:bg-amber-300 text-slate-950 font-extrabold px-3 py-0.5 rounded-full text-xs transition-all cursor-pointer shadow-md shadow-amber-400/10"
+          >
+            <RefreshCw className="w-3 h-3 animate-spin-slow" />
+            <span>Configura Credenziali Tuya</span>
+          </button>
+        </div>
       </div>
 
       {/* Main Apple Home Header */}

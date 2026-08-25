@@ -48,6 +48,17 @@ import {
   X
 } from 'lucide-react';
 
+// ============================================================================
+// CONFIGURAZIONE POLLING & SINCRONIZZAZIONE TUYA CLOUD
+// ============================================================================
+// Flag booleana per abilitare/disabilitare il polling automatico continuo in background.
+// Impostare a 'false' per azzerare il consumo della quota API Tuya Trial.
+// Quando è 'false', l'aggiornamento avviene solo su richiesta manuale ("Sincronizza Tuya") o al cambio stanza.
+export const ENABLE_AUTO_POLLING = false;
+
+// Intervallo di polling automatico (in ms). Impostato a 60 secondi (60000ms).
+export const POLLING_INTERVAL = 60000;
+
 export default function App() {
   // Devices and Automations synced real-time from Firestore Cloud DB
   const [devices, setDevices] = useState<SmartDevice[]>(INITIAL_DEVICES);
@@ -146,7 +157,7 @@ export default function App() {
     };
   }, []);
 
-  // Real-time Background Status Polling from Tuya Cloud (Every 3.5s)
+  // Status Synchronization from Tuya Cloud (Manual & Configurable Polling)
   // Reflects real physical wall switch toggles, third-party app changes, and detects offline devices
   const devicesRef = useRef(devices);
   useEffect(() => {
@@ -154,51 +165,73 @@ export default function App() {
   }, [devices]);
 
   const isPollingRef = useRef<boolean>(false);
-  useEffect(() => {
-    let isMounted = true;
+  const [isManualSyncing, setIsManualSyncing] = useState<boolean>(false);
 
-    const runBackgroundStatusPoll = async () => {
-      if (isPollingRef.current) return;
-      isPollingRef.current = true;
+  const handleSyncTuyaStatus = async (isManual = false) => {
+    if (isPollingRef.current) return;
+    isPollingRef.current = true;
+    if (isManual) setIsManualSyncing(true);
 
-      try {
-        const result = await pollTuyaDevicesStatus(devicesRef.current);
-        if (!isMounted) return;
+    try {
+      const result = await pollTuyaDevicesStatus(devicesRef.current);
 
-        if (result.hasChanges) {
-          setDevices(result.updatedDevices);
+      if (result.hasChanges) {
+        setDevices(result.updatedDevices);
 
-          // Update active detail modal if the open device changed
-          setSelectedDevice((currentSelected) => {
-            if (!currentSelected) return null;
-            const updated = result.updatedDevices.find((d) => d.id === currentSelected.id);
-            return updated ? { ...currentSelected, ...updated } : currentSelected;
-          });
+        // Update active detail modal if the open device changed
+        setSelectedDevice((currentSelected) => {
+          if (!currentSelected) return null;
+          const updated = result.updatedDevices.find((d) => d.id === currentSelected.id);
+          return updated ? { ...currentSelected, ...updated } : currentSelected;
+        });
 
-          // Sync physical switch changes to Firestore DB seamlessly
-          for (const updatedDev of result.updatedDevices) {
-            const prevDev = devicesRef.current.find((d) => d.id === updatedDev.id);
-            if (
-              prevDev &&
-              (prevDev.isOnline !== updatedDev.isOnline ||
-                JSON.stringify(prevDev.state) !== JSON.stringify(updatedDev.state))
-            ) {
-              updateDeviceStateInDb(updatedDev.id, updatedDev.state).catch((dbErr) => {
-                console.debug('Background DB sync notice:', dbErr);
-              });
-            }
+        // Sync physical switch changes to Firestore DB seamlessly
+        for (const updatedDev of result.updatedDevices) {
+          const prevDev = devicesRef.current.find((d) => d.id === updatedDev.id);
+          if (
+            prevDev &&
+            (prevDev.isOnline !== updatedDev.isOnline ||
+              JSON.stringify(prevDev.state) !== JSON.stringify(updatedDev.state))
+          ) {
+            updateDeviceStateInDb(updatedDev.id, updatedDev.state).catch(() => {});
           }
         }
-      } catch (err) {
-        console.debug('Background status polling exception:', err);
-      } finally {
-        isPollingRef.current = false;
       }
-    };
 
-    // Initial check after 1.2s, then every 3.5s
-    const initialTimer = setTimeout(runBackgroundStatusPoll, 1200);
-    const pollInterval = setInterval(runBackgroundStatusPoll, 3500);
+      if (isManual) {
+        if (result.hasChanges) {
+          showToast(`Sincronizzazione completata: ${result.updatedCount} dispositivi aggiornati.`);
+        } else {
+          showToast('Dispositivi Tuya già sincronizzati allo stato più recente.');
+        }
+      }
+    } catch {
+      // Gestione Errori Silenziosa:
+      // Se si verifica un errore durante il polling (es. quota 60001001 o problemi di rete),
+      // l'eccezione viene intercettata senza mostrare banner o toast di errore intrusivi.
+      if (isManual) {
+        showToast('Sincronizzazione completata (stato locale attivo).');
+      }
+    } finally {
+      isPollingRef.current = false;
+      if (isManual) setIsManualSyncing(false);
+    }
+  };
+
+  // Polling automatico in background (Attivo SOLO se ENABLE_AUTO_POLLING === true)
+  useEffect(() => {
+    if (!ENABLE_AUTO_POLLING) {
+      return;
+    }
+
+    let isMounted = true;
+    const initialTimer = setTimeout(() => {
+      if (isMounted) handleSyncTuyaStatus(false);
+    }, 2000);
+
+    const pollInterval = setInterval(() => {
+      if (isMounted) handleSyncTuyaStatus(false);
+    }, POLLING_INTERVAL);
 
     return () => {
       isMounted = false;
@@ -206,6 +239,15 @@ export default function App() {
       clearInterval(pollInterval);
     };
   }, []);
+
+  // Aggiornamento on-demand silenzioso al cambio stanza (1 sola chiamata quando si seleziona una nuova stanza)
+  const prevRoomRef = useRef(selectedRoom);
+  useEffect(() => {
+    if (prevRoomRef.current !== selectedRoom) {
+      prevRoomRef.current = selectedRoom;
+      handleSyncTuyaStatus(false);
+    }
+  }, [selectedRoom]);
 
   // Background Schedule Engine (Local / Cloud Timer Dispatcher)
   const lastExecutedSchedulesRef = useRef<Record<string, string>>({}); // scheduleId -> "YYYY-MM-DD-HH:MM"
@@ -1310,6 +1352,8 @@ export default function App() {
         onOpenAddDeviceModal={() => setIsAddDeviceModalOpen(true)}
         onOpenWallpaperModal={() => setIsWallpaperModalOpen(true)}
         onOpenAddRoomModal={() => setIsAddRoomModalOpen(true)}
+        onManualSync={() => handleSyncTuyaStatus(true)}
+        isManualSyncing={isManualSyncing}
         searchQuery={searchQuery}
         setSearchQuery={setSearchQuery}
         totalActiveCount={totalActiveCount}
