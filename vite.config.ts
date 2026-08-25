@@ -1,6 +1,5 @@
 import tailwindcss from '@tailwindcss/vite';
 import react from '@vitejs/plugin-react';
-import legacy from '@vitejs/plugin-legacy';
 import path from 'path';
 import {defineConfig} from 'vite';
 
@@ -9,12 +8,10 @@ export default defineConfig(() => {
     plugins: [
       react(),
       tailwindcss(),
-      legacy({
-        targets: ['defaults', 'chrome >= 49', 'safari >= 10', 'edge >= 15', 'firefox >= 52'],
-        additionalLegacyPolyfills: ['regenerator-runtime/runtime'],
-        renderModernChunks: true,
-      }),
     ],
+    build: {
+      target: 'es2015',
+    },
     resolve: {
       alias: {
         '@': path.resolve(__dirname, '.'),
