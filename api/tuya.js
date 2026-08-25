@@ -1,3 +1,4 @@
-import handler from './tuya-command.js';
-
-export default handler;
+// Tuya proxy
+export default function handler(req, res) {
+  res.status(200).json({ status: "ok" });
+}

@@ -169,7 +169,7 @@ export const SmartLifeTransferModal: React.FC<SmartLifeTransferModalProps> = ({
                   </div>
                 </div>
                 <span className="text-[11px] font-semibold text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 px-2.5 py-1 rounded-lg">
-                  Chiamata API /v1.0/users/{'{uid}'}/devices
+                  Standard EU
                 </span>
               </div>
 

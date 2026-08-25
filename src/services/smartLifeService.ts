@@ -213,7 +213,7 @@ export async function syncTuyaCloudApi(credentials: TuyaCloudCredentials): Promi
     try {
       data = JSON.parse(text);
     } catch {
-      data = null;
+      // Ignored
     }
 
     if (!res.ok || !data || !data.success) {
@@ -222,8 +222,8 @@ export async function syncTuyaCloudApi(credentials: TuyaCloudCredentials): Promi
 
     return {
       success: true,
-      message: data.message || 'Sincronizzazione completata con successo!',
-      importedCount: data.devices?.length || 0,
+      message: data.message || `Sincronizzazione completata: ${data.importedCount || 0} dispositivi importati.`,
+      importedCount: data.importedCount || 0,
       devices: data.devices || [],
       source: 'tuya_cloud',
     };
@@ -536,24 +536,20 @@ export async function sendTuyaCommand(
     try {
       data = JSON.parse(text);
     } catch {
-      data = null;
+      // Not JSON, might be 404 HTML or empty, ignore and fallback to client-side
     }
 
-    if (isGate) {
-      console.log("Tuya Response Gate:", data || text);
-    }
-
-    if (data) {
+    if (res.ok && data) {
       if (data.success) {
         return {
           success: true,
-          message: data.message || `Comando '${realCode}: ${realValue}' eseguito su Tuya Cloud!`,
+          message: data.message || `Comando '${realCode}' inviato con successo`,
         };
-      } else if (data.message) {
+      } else if (data.code || data.message) {
         return {
           success: false,
           statusCode: res.status,
-          message: data.message,
+          message: data.message || 'Errore durante l\'esecuzione del comando',
         };
       }
     }
