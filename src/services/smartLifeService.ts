@@ -328,13 +328,6 @@ export async function sendTuyaCommand(
 
   creds = creds || getStoredTuyaCredentials();
 
-  if (!creds || !creds.clientAccessId || !creds.clientSecret) {
-    return {
-      success: false,
-      message: 'Credenziali Tuya assenti. Inserisci Client ID e Client Secret nel modale Smart Life per abilitare il controllo reale.',
-    };
-  }
-
   const isGate = options?.isGate || options?.category === 'gate' || options?.category === 'pulsed_switch';
   const deviceNameStr = (options?.deviceName || options?.name || '').toLowerCase();
   const isCancelletto =
@@ -362,25 +355,36 @@ export async function sendTuyaCommand(
   }
 
   // 1. Exclusively execute via Backend Serverless API Route (/api/tuya-command)
-  // Ensures compatibility with Samsung Family Hub (Tizen WebKit) avoiding CORS and browser crypto HMAC limits
+  // Transparent standard application/json headers for Samsung Family Hub (Tizen WebKit) compatibility
   try {
+    const payload: any = {
+      deviceId,
+      command: { code: realCode, value: realValue },
+      code: realCode,
+      value: realValue,
+      category: options?.category,
+      isGate,
+      dpCode: options?.dpCode || realCode,
+      deviceName: options?.deviceName || options?.name,
+    };
+
+    if (creds?.clientAccessId) {
+      payload.clientId = creds.clientAccessId;
+      payload.clientAccessId = creds.clientAccessId;
+    }
+    if (creds?.clientSecret) {
+      payload.clientSecret = creds.clientSecret;
+    }
+    if (creds?.region) {
+      payload.region = creds.region;
+    }
+
     const res = await fetch('/api/tuya-command', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        clientId: creds.clientAccessId,
-        clientAccessId: creds.clientAccessId,
-        clientSecret: creds.clientSecret,
-        region: creds.region || 'eu',
-        deviceId,
-        command: { code: realCode, value: realValue },
-        code: realCode,
-        value: realValue,
-        category: options?.category,
-        isGate,
-        dpCode: options?.dpCode || realCode,
-        deviceName: options?.deviceName || options?.name,
-      }),
+      headers: { 
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(payload),
     });
 
     const text = await res.text().catch(() => '');

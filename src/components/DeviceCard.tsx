@@ -103,7 +103,10 @@ const IrrigationCard: React.FC<{
     }
   };
 
-  const handleMasterToggle = (e: React.MouseEvent) => {
+  const handleMasterToggle = (e: React.MouseEvent | React.TouchEvent) => {
+    if ('touches' in e || 'changedTouches' in e) {
+      if (e.cancelable) e.preventDefault();
+    }
     e.stopPropagation();
     const targetVal = !isAnyActive;
     channels.forEach((ch) => {
@@ -113,6 +116,14 @@ const IrrigationCard: React.FC<{
         }
       }
     });
+  };
+
+  const handleChannelAction = (e: React.MouseEvent | React.TouchEvent, dpCode: string, currentVal: boolean) => {
+    if ('touches' in e || 'changedTouches' in e) {
+      if (e.cancelable) e.preventDefault();
+    }
+    e.stopPropagation();
+    handleToggle(dpCode, currentVal);
   };
 
   return (
@@ -168,6 +179,7 @@ const IrrigationCard: React.FC<{
           <button
             type="button"
             onClick={handleMasterToggle}
+            onTouchEnd={handleMasterToggle}
             className={`px-3 py-1.5 rounded-xl text-xs font-bold transition cursor-pointer flex items-center gap-1.5 ${
               isAnyActive
                 ? 'bg-rose-500/20 text-rose-300 hover:bg-rose-500/30 border border-rose-500/40 shadow-sm'
@@ -185,6 +197,11 @@ const IrrigationCard: React.FC<{
               e.stopPropagation();
               onClickDetail(device);
             }}
+            onTouchEnd={(e) => {
+              if (e.cancelable) e.preventDefault();
+              e.stopPropagation();
+              onClickDetail(device);
+            }}
             className="p-2 rounded-xl text-white/70 hover:text-white hover:bg-white/10 border border-white/10 transition cursor-pointer"
             title="Programmazioni orari e Timer zone"
           >
@@ -199,10 +216,8 @@ const IrrigationCard: React.FC<{
           <button
             key={ch.dpCode}
             type="button"
-            onClick={(e) => {
-              e.stopPropagation();
-              handleToggle(ch.dpCode, ch.active);
-            }}
+            onClick={(e) => handleChannelAction(e, ch.dpCode, ch.active)}
+            onTouchEnd={(e) => handleChannelAction(e, ch.dpCode, ch.active)}
             className={`group/btn relative p-3 sm:p-3.5 rounded-2xl border text-left flex flex-col justify-between transition-all duration-150 cursor-pointer active:scale-95 min-h-[96px] ${
               ch.active
                 ? 'bg-gradient-to-b from-cyan-500/30 to-cyan-600/20 border-cyan-400 text-white shadow-md shadow-cyan-900/40 ring-1 ring-cyan-400/50'
@@ -398,8 +413,13 @@ const CameraCard: React.FC<{
     }
   };
 
-  const handleSnapshot = (e: React.MouseEvent) => {
-    e.stopPropagation();
+  const handleSnapshot = (e?: React.MouseEvent | React.TouchEvent) => {
+    if (e) {
+      if ('touches' in e || 'changedTouches' in e) {
+        if (e.cancelable) e.preventDefault();
+      }
+      e.stopPropagation();
+    }
     setSnapshotNotice(true);
     setTimeout(() => setSnapshotNotice(false), 2200);
   };
@@ -557,6 +577,11 @@ const CameraCard: React.FC<{
                       e.stopPropagation();
                       setIsMuted(!isMuted);
                     }}
+                    onTouchEnd={(e) => {
+                      if (e.cancelable) e.preventDefault();
+                      e.stopPropagation();
+                      setIsMuted(!isMuted);
+                    }}
                     className="p-1 rounded-full bg-black/50 hover:bg-black/70 text-white border border-white/20 backdrop-blur-md transition cursor-pointer flex items-center justify-center shadow-lg hover:border-amber-400"
                     title={isMuted ? 'Attiva Audio' : 'Disattiva Audio (Mute)'}
                   >
@@ -573,6 +598,11 @@ const CameraCard: React.FC<{
                     e.stopPropagation();
                     setShowTuyaConfigModal(true);
                   }}
+                  onTouchEnd={(e) => {
+                    if (e.cancelable) e.preventDefault();
+                    e.stopPropagation();
+                    setShowTuyaConfigModal(true);
+                  }}
                   className="p-1 rounded-full bg-black/40 hover:bg-black/60 text-amber-300 border border-white/20 backdrop-blur-md transition cursor-pointer"
                   title="Configura Credenziali Tuya WebRTC"
                 >
@@ -581,6 +611,11 @@ const CameraCard: React.FC<{
                 <button
                   type="button"
                   onClick={(e) => {
+                    e.stopPropagation();
+                    onClickDetail(device);
+                  }}
+                  onTouchEnd={(e) => {
+                    if (e.cancelable) e.preventDefault();
                     e.stopPropagation();
                     onClickDetail(device);
                   }}
@@ -598,6 +633,11 @@ const CameraCard: React.FC<{
               <button
                 type="button"
                 onClick={(e) => {
+                  e.stopPropagation();
+                  setIsPlaying(!isPlaying);
+                }}
+                onTouchEnd={(e) => {
+                  if (e.cancelable) e.preventDefault();
                   e.stopPropagation();
                   setIsPlaying(!isPlaying);
                 }}
@@ -640,6 +680,11 @@ const CameraCard: React.FC<{
             e.stopPropagation();
             alert('Messaggi Telecamera: Nessun movimento sospetto rilevato.');
           }}
+          onTouchEnd={(e) => {
+            if (e.cancelable) e.preventDefault();
+            e.stopPropagation();
+            alert('Messaggi Telecamera: Nessun movimento sospetto rilevato.');
+          }}
           className="flex flex-col items-center gap-1.5 text-slate-700 dark:text-slate-300 hover:text-slate-950 dark:hover:text-white group/btn cursor-pointer py-1 px-1 rounded-xl hover:bg-slate-100 dark:hover:bg-white/5 transition"
         >
           <div className="relative">
@@ -651,6 +696,11 @@ const CameraCard: React.FC<{
         <button
           type="button"
           onClick={(e) => {
+            e.stopPropagation();
+            alert('Archiviazione: 128GB Scheda SD e Cloud Tuya attivi.');
+          }}
+          onTouchEnd={(e) => {
+            if (e.cancelable) e.preventDefault();
             e.stopPropagation();
             alert('Archiviazione: 128GB Scheda SD e Cloud Tuya attivi.');
           }}
@@ -666,6 +716,11 @@ const CameraCard: React.FC<{
         <button
           type="button"
           onClick={handleSnapshot}
+          onTouchEnd={(e) => {
+            if (e.cancelable) e.preventDefault();
+            e.stopPropagation();
+            handleSnapshot();
+          }}
           className="flex flex-col items-center gap-1.5 text-slate-700 dark:text-slate-300 hover:text-slate-950 dark:hover:text-white group/btn cursor-pointer py-1 px-1 rounded-xl hover:bg-slate-100 dark:hover:bg-white/5 transition"
         >
           <Camera className="w-5 h-5 text-slate-700 dark:text-slate-300 group-hover/btn:text-amber-500 transition" />
@@ -675,6 +730,11 @@ const CameraCard: React.FC<{
         <button
           type="button"
           onClick={(e) => {
+            e.stopPropagation();
+            onClickDetail(device);
+          }}
+          onTouchEnd={(e) => {
+            if (e.cancelable) e.preventDefault();
             e.stopPropagation();
             onClickDetail(device);
           }}
@@ -921,9 +981,32 @@ export const DeviceCard: React.FC<DeviceCardProps> = ({
     );
   };
 
+  const handleCardClick = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    onTogglePower(device);
+  };
+
+  const handleCardTouchEnd = (e: React.TouchEvent) => {
+    if (e.cancelable) {
+      e.preventDefault();
+    }
+    e.stopPropagation();
+    onTogglePower(device);
+  };
+
   return (
     <div
-      onClick={() => onTogglePower(device)}
+      role="button"
+      tabIndex={0}
+      onClick={handleCardClick}
+      onTouchEnd={handleCardTouchEnd}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          onTogglePower(device);
+        }
+      }}
+      style={{ touchAction: 'manipulation' }}
       className={`group relative p-3.5 rounded-[22px] flex flex-col justify-between h-[116px] transition-all duration-200 cursor-pointer select-none active:scale-[0.96] ${
         isPowerOn
           ? 'bg-white text-slate-900 border border-slate-100/80 shadow-md hover:shadow-lg hover:bg-white'
@@ -945,6 +1028,11 @@ export const DeviceCard: React.FC<DeviceCardProps> = ({
           <button
             type="button"
             onClick={(e) => {
+              e.stopPropagation();
+              onClickDetail(device);
+            }}
+            onTouchEnd={(e) => {
+              if (e.cancelable) e.preventDefault();
               e.stopPropagation();
               onClickDetail(device);
             }}
