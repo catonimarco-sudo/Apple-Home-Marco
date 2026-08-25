@@ -122,7 +122,88 @@ export default async function handler(req, res) {
       }
     }
 
-    const rawDevices = devicesData?.result || [];
+    // Fallback: If no devices returned for user UID, try general /v1.0/devices endpoint
+    if (!devicesData?.result || (Array.isArray(devicesData.result) && devicesData.result.length === 0)) {
+      try {
+        const t2b = Date.now().toString();
+        const urlPath2b = `/v1.0/devices`;
+        const bodySha256_2b = crypto.createHash('sha256').update('').digest('hex');
+        const stringToSign2b = ['GET', bodySha256_2b, '', urlPath2b].join('\n');
+        const signStr2b = clientAccessId + accessToken + t2b + stringToSign2b;
+        const sign2b = crypto.createHmac('sha256', clientSecret).update(signStr2b).digest('hex').toUpperCase();
+
+        const devResB = await fetch(`https://${host}${urlPath2b}`, {
+          method: 'GET',
+          headers: {
+            client_id: clientAccessId,
+            access_token: accessToken,
+            sign: sign2b,
+            t: t2b,
+            sign_method: 'HMAC-SHA256',
+          },
+        });
+
+        const textB = await devResB.text().catch(() => '');
+        const dataB = JSON.parse(textB);
+        if (dataB?.result && Array.isArray(dataB.result) && dataB.result.length > 0) {
+          devicesData = dataB;
+        }
+      } catch {
+        // Continue with whatever devicesData was available
+      }
+    }
+
+    const rawDevices = Array.isArray(devicesData?.result)
+      ? devicesData.result
+      : Array.isArray(devicesData?.result?.list)
+      ? devicesData.result.list
+      : [];
+
+    // 3. Query /v1.0/devices/{device_id}/status for every device to get realtime status DPs
+    if (rawDevices.length > 0) {
+      await Promise.allSettled(
+        rawDevices.map(async (d) => {
+          if (!d || !d.id) return;
+          try {
+            const tStatus = Date.now().toString();
+            const urlPathStatus = `/v1.0/devices/${encodeURIComponent(d.id)}/status`;
+            const bodyShaStatus = crypto.createHash('sha256').update('').digest('hex');
+            const stringToSignStatus = ['GET', bodyShaStatus, '', urlPathStatus].join('\n');
+            const signStrStatus = clientAccessId + accessToken + tStatus + stringToSignStatus;
+            const signStatus = crypto.createHmac('sha256', clientSecret).update(signStrStatus).digest('hex').toUpperCase();
+
+            const statusRes = await fetch(`https://${host}${urlPathStatus}`, {
+              method: 'GET',
+              headers: {
+                client_id: clientAccessId,
+                access_token: accessToken,
+                sign: signStatus,
+                t: tStatus,
+                sign_method: 'HMAC-SHA256',
+              },
+            });
+
+            const statusText = await statusRes.text().catch(() => '');
+            const statusJson = JSON.parse(statusText);
+            if (statusJson && statusJson.success && Array.isArray(statusJson.result)) {
+              // Merge live DP status values
+              const existingStatus = Array.isArray(d.status) ? d.status : [];
+              const statusMap = new Map();
+              for (const s of existingStatus) {
+                if (s && s.code) statusMap.set(String(s.code).toLowerCase(), s);
+              }
+              for (const s of statusJson.result) {
+                if (s && s.code) statusMap.set(String(s.code).toLowerCase(), s);
+              }
+              d.status = Array.from(statusMap.values());
+            }
+          } catch (err) {
+            console.warn(`[Tuya Sync] Could not fetch live status for device ${d.id}:`, err);
+          }
+        })
+      );
+    }
+
     let mappedDevices = [];
 
     // Helper to safely extract status properties from Tuya payload
@@ -246,18 +327,18 @@ export default async function handler(req, res) {
         else if (catLower.includes('sp') || catLower.includes('cam') || nameLower.includes('camera') || nameLower.includes('telecamera')) cat = 'camera';
         else if (catLower.includes('cg') || catLower.includes('sensor') || nameLower.includes('sensore')) cat = 'sensor';
         else if (catLower.includes('cl') || catLower.includes('curtain') || nameLower.includes('tapparella') || nameLower.includes('tenda')) cat = 'curtains';
-        else if (catLower.includes('ka') || catLower.includes('switch') || nameLower.includes('interruttore') || nameLower.includes('relè') || nameLower.includes('rele')) cat = 'switch';
+        else if (catLower.includes('ka') || catLower.includes('switch') || catLower.includes('dlq') || nameLower.includes('interruttore') || nameLower.includes('relè') || nameLower.includes('rele') || nameLower.includes('quadro')) cat = 'switch';
 
         const isThermostat = cat === 'thermostat' || nameLower.includes('termo') || nameLower.includes('caldaia');
         const thermoState = isThermostat ? extractThermostatData(d) : { power: true, targetTemp: 22, currentTemp: 31.0, humidity: 48, mode: 'heat', fanSpeed: 'auto' };
 
-        const plugPower = Boolean(getStatusVal(d, ['switch_go', 'switch_1', 'switch', '1', 'power']));
+        const plugPower = Boolean(getStatusVal(d, ['switch_go', 'switch_1', 'switch', '1', 'power', 'switch_main']));
         const lightPower = Boolean(getStatusVal(d, ['switch_led', 'switch_1', 'switch', '20', 'power', 'led_switch', 'switch_led_1']));
         const lightBright = Number(getStatusVal(d, ['bright_value', 'bright_value_v2', 'brightness', '22']) || 100);
         const lightColor = String(getStatusVal(d, ['colour_data', 'color']) || '#ffffff');
         const lightColorTemp = Number(getStatusVal(d, ['temp_value', 'color_temp', '23']) || 4000);
 
-        const sw1 = getStatusVal(d, ['switch_1', '1', 'switch', 'switch_led']);
+        const sw1 = getStatusVal(d, ['switch_1', '1', 'switch', 'switch_led', 'switch_go', 'power', 'switch_main']);
         const sw2 = getStatusVal(d, ['switch_2', '2']);
         const sw3 = getStatusVal(d, ['switch_3', '3']);
         const sw4 = getStatusVal(d, ['switch_4', '4']);
@@ -272,7 +353,7 @@ export default async function handler(req, res) {
         const isVacuumCleaning = Boolean(getStatusVal(d, ['status', 'mode', 'power_go']) === 'cleaning' || getStatusVal(d, ['status']) === 'smart');
         const curtainsOpen = Number(getStatusVal(d, ['percent_control', 'position', '1']) || 0);
 
-        const isOnline = d.online !== false && d.online !== undefined ? Boolean(d.online) : true;
+        const isOnline = d.online !== undefined ? Boolean(d.online) : true;
 
         return {
           id: `tuya-cloud-${d.id || index}`,

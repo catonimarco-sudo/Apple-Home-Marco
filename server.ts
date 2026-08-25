@@ -102,6 +102,53 @@ async function fetchTuyaOpenApiDevices(clientAccessId: string, clientSecret: str
       },
     });
     devicesData = await devRes.json();
+
+    // Query live /v1.0/devices/{device_id}/status for each device
+    const rawList = Array.isArray(devicesData?.result)
+      ? devicesData.result
+      : Array.isArray(devicesData?.result?.list)
+      ? devicesData.result.list
+      : [];
+
+    if (rawList.length > 0) {
+      await Promise.allSettled(
+        rawList.map(async (d: any) => {
+          if (!d || !d.id) return;
+          try {
+            const tStatus = Date.now().toString();
+            const urlPathStatus = `/v1.0/devices/${encodeURIComponent(d.id)}/status`;
+            const stringToSignStatus = ["GET", bodySha256, "", urlPathStatus].join("\n");
+            const signStrStatus = clientAccessId + access_token + tStatus + stringToSignStatus;
+            const signStatus = crypto.createHmac("sha256", clientSecret).update(signStrStatus).digest("hex").toUpperCase();
+
+            const sRes = await fetch(`https://${host}${urlPathStatus}`, {
+              method: "GET",
+              headers: {
+                client_id: clientAccessId,
+                access_token: access_token,
+                sign: signStatus,
+                t: tStatus,
+                sign_method: "HMAC-SHA256",
+              },
+            });
+            const sData = await sRes.json();
+            if (sData && sData.success && Array.isArray(sData.result)) {
+              const existingStatus = Array.isArray(d.status) ? d.status : [];
+              const statusMap = new Map();
+              for (const s of existingStatus) {
+                if (s && s.code) statusMap.set(String(s.code).toLowerCase(), s);
+              }
+              for (const s of sData.result) {
+                if (s && s.code) statusMap.set(String(s.code).toLowerCase(), s);
+              }
+              d.status = Array.from(statusMap.values());
+            }
+          } catch {
+            // Ignore single device status errors
+          }
+        })
+      );
+    }
   } catch (err) {
     console.error("Tuya devices query error:", err);
   }
