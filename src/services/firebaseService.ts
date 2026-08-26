@@ -11,10 +11,62 @@ import {
   orderBy
 } from 'firebase/firestore';
 import { db } from './firebase';
-import { SmartDevice, AutomationRule } from '../types';
+import { SmartDevice, AutomationRule, RoomConfig } from '../types';
 
 const DEVICES_COLLECTION = 'devices';
 const AUTOMATIONS_COLLECTION = 'automations';
+const SETTINGS_COLLECTION = 'settings';
+const ROOMS_CONFIG_DOC = 'rooms_config';
+
+export interface RoomSettingsData {
+  roomOrder?: string[];
+  customRooms?: string[];
+  deletedRooms?: string[];
+  roomConfigs?: Record<string, RoomConfig>;
+  updatedAt?: string;
+}
+
+/**
+ * Subscribe to real-time updates for room ordering, custom rooms, deleted rooms and room configs.
+ */
+export function subscribeToRoomSettings(
+  onUpdate: (data: RoomSettingsData) => void,
+  onError?: (err: Error) => void
+): () => void {
+  const docRef = doc(db, SETTINGS_COLLECTION, ROOMS_CONFIG_DOC);
+
+  return onSnapshot(
+    docRef,
+    (snapshot) => {
+      if (snapshot.exists()) {
+        const data = snapshot.data() as RoomSettingsData;
+        onUpdate(data);
+      }
+    },
+    (error) => {
+      console.warn('Firestore subscribeToRoomSettings warning:', error);
+      if (onError) onError(error);
+    }
+  );
+}
+
+/**
+ * Persist room ordering, custom rooms, deleted rooms and room configs in Firestore.
+ */
+export async function saveRoomSettingsToDb(settings: RoomSettingsData): Promise<void> {
+  try {
+    const docRef = doc(db, SETTINGS_COLLECTION, ROOMS_CONFIG_DOC);
+    const cleanData = JSON.parse(
+      JSON.stringify({
+        ...settings,
+        updatedAt: new Date().toISOString(),
+      })
+    );
+    await setDoc(docRef, cleanData, { merge: true });
+  } catch (err) {
+    console.warn('Could not save room settings to Firestore:', err);
+  }
+}
 
 /**
  * Subscribe to real-time updates for all smart home devices across all connected clients.

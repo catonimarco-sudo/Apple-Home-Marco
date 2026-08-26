@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { SmartDevice } from '../types';
-import { getTuyaConfig, saveTuyaConfig, TuyaCameraConfig, requestTuyaWebRTCStream, startWebRTCStream } from '../tuyaConfig';
+import { getTuyaConfig, saveTuyaConfig, resetTuyaConfig, TuyaCameraConfig, requestTuyaWebRTCStream, startWebRTCStream, cleanupVideoMedia } from '../tuyaConfig';
 import { 
   Power, 
   Zap, 
@@ -31,7 +31,9 @@ import {
   Loader2,
   Volume2,
   VolumeX,
-  Droplets
+  Droplets,
+  AlertTriangle,
+  RotateCcw
 } from 'lucide-react';
 
 interface DeviceCardProps {
@@ -268,16 +270,17 @@ const CameraCard: React.FC<{
   device: SmartDevice;
   onClickDetail: (device: SmartDevice) => void;
 }> = ({ device, onClickDetail }) => {
-  const [isPlaying, setIsPlaying] = useState<boolean>(false);
+  const [isPlaying, setIsPlaying] = useState<boolean>(true);
   const [isMuted, setIsMuted] = useState<boolean>(true);
   const [showTuyaConfigModal, setShowTuyaConfigModal] = useState<boolean>(false);
   const [tuyaForm, setTuyaForm] = useState<TuyaCameraConfig>(() =>
     getTuyaConfig(device.tuyaDeviceId || device.id)
   );
-  const [activeStreamUrl, setActiveStreamUrl] = useState<string>(() => tuyaForm.streamUrl || '');
+  const [activeStreamUrl, setActiveStreamUrl] = useState<string>(() => tuyaForm.streamUrl || tuyaForm.directStreamUrl || '');
   const [isFetchingStream, setIsFetchingStream] = useState<boolean>(false);
   const [savedSuccess, setSavedSuccess] = useState<boolean>(false);
   const [statusMsg, setStatusMsg] = useState<string>('');
+  const [streamError, setStreamError] = useState<{ code?: string; message: string } | null>(null);
   const [timeStr, setTimeStr] = useState<string>('');
   const [snapshotNotice, setSnapshotNotice] = useState<boolean>(false);
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -296,7 +299,9 @@ const CameraCard: React.FC<{
       loaded.deviceId = devId;
     }
     setTuyaForm(loaded);
-    if (loaded.streamUrl) {
+    if (loaded.directStreamUrl) {
+      setActiveStreamUrl(loaded.directStreamUrl);
+    } else if (loaded.streamUrl) {
       setActiveStreamUrl(loaded.streamUrl);
     }
   }, [device.tuyaDeviceId, device.id]);
@@ -311,24 +316,53 @@ const CameraCard: React.FC<{
     }
 
     const startStreamOnDemand = async () => {
+      // If direct stream URL is set, play directly without calling Tuya Cloud
+      if (cfg.directStreamUrl && cfg.directStreamUrl.trim().length > 0) {
+        setActiveStreamUrl(cfg.directStreamUrl.trim());
+        setStreamError(null);
+        setTimeout(async () => {
+          if (videoRef.current && isMounted) {
+            await startWebRTCStream(
+              videoRef.current,
+              { success: true, streamUrl: cfg.directStreamUrl.trim(), message: 'Direct stream active' },
+              device.name,
+              cfg
+            );
+          }
+        }, 100);
+        return;
+      }
+
       setIsFetchingStream(true);
+      setStreamError(null);
       try {
         const res = await requestTuyaWebRTCStream(cfg);
         if (!isMounted) return;
         if (res.success) {
           const streamUrl = res.streamUrl || 'webrtc-stream-active';
           setActiveStreamUrl(streamUrl);
+          setStreamError(null);
           saveTuyaConfig({ ...cfg, streamUrl }, devId);
 
           setTimeout(async () => {
             if (videoRef.current && isMounted) {
-              const pc = await startWebRTCStream(videoRef.current, res, device.name);
+              const pc = await startWebRTCStream(videoRef.current, res, device.name, cfg);
               peerConnectionRef.current = pc;
             }
           }, 100);
+        } else {
+          setStreamError({
+            code: res.code,
+            message: res.message || 'Impossibile avviare lo streaming video.',
+          });
         }
-      } catch (err) {
+      } catch (err: any) {
         console.warn('On-demand stream initialization error on CameraCard:', err);
+        if (isMounted) {
+          setStreamError({
+            message: err?.message || 'Errore di connessione durante l\'avvio dello stream.',
+          });
+        }
       } finally {
         if (isMounted) setIsFetchingStream(false);
       }
@@ -339,10 +373,7 @@ const CameraCard: React.FC<{
     } else {
       setIsFetchingStream(false);
       if (videoRef.current) {
-        videoRef.current.pause();
-        videoRef.current.srcObject = null;
-        videoRef.current.removeAttribute('src');
-        videoRef.current.load();
+        cleanupVideoMedia(videoRef.current);
       }
       if (peerConnectionRef.current) {
         peerConnectionRef.current.close();
@@ -352,6 +383,9 @@ const CameraCard: React.FC<{
 
     return () => {
       isMounted = false;
+      if (videoRef.current) {
+        cleanupVideoMedia(videoRef.current);
+      }
       if (peerConnectionRef.current) {
         peerConnectionRef.current.close();
         peerConnectionRef.current = null;
@@ -376,12 +410,46 @@ const CameraCard: React.FC<{
     return () => clearInterval(interval);
   }, []);
 
+  const handleResetConfig = (e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const targetDevId = device.tuyaDeviceId || device.id;
+    const cleanConfig = resetTuyaConfig(targetDevId);
+    setTuyaForm(cleanConfig);
+    setActiveStreamUrl('');
+    setStreamError(null);
+    setStatusMsg('Configurazione ripristinata alle impostazioni predefinite.');
+    setSavedSuccess(true);
+    if (videoRef.current) {
+      cleanupVideoMedia(videoRef.current);
+    }
+    setTimeout(() => {
+      setSavedSuccess(false);
+      setShowTuyaConfigModal(false);
+      setIsPlaying(true);
+    }, 800);
+  };
+
   const handleSaveTuyaConfig = async (e: React.FormEvent) => {
     e.preventDefault();
     const targetDevId = tuyaForm.deviceId || device.tuyaDeviceId || device.id;
     saveTuyaConfig(tuyaForm, targetDevId);
+    setStreamError(null);
+
+    if (tuyaForm.directStreamUrl && tuyaForm.directStreamUrl.trim().length > 0) {
+      setActiveStreamUrl(tuyaForm.directStreamUrl.trim());
+      setStatusMsg('URL Flusso Diretto salvato con successo!');
+      setSavedSuccess(true);
+      setTimeout(() => {
+        setSavedSuccess(false);
+        setShowTuyaConfigModal(false);
+        setIsPlaying(true);
+      }, 1200);
+      return;
+    }
+
     setIsFetchingStream(true);
-    setStatusMsg('Connessione all\'endpoint /api/tuya-stream e RTCPeerConnection...');
+    setStatusMsg('Connessione all\'endpoint /api/tuya-stream e allocazione flusso...');
 
     try {
       const res = await requestTuyaWebRTCStream(tuyaForm);
@@ -389,13 +457,14 @@ const CameraCard: React.FC<{
         const streamUrl = res.streamUrl || 'webrtc-stream-active';
         setActiveStreamUrl(streamUrl);
         saveTuyaConfig({ ...tuyaForm, streamUrl }, targetDevId);
+        setStreamError(null);
 
-        setStatusMsg(res.message || 'Flusso WebRTC recuperato con successo!');
+        setStatusMsg(res.message || 'Flusso recuperato con successo!');
         setSavedSuccess(true);
 
         setTimeout(async () => {
           if (videoRef.current) {
-            await startWebRTCStream(videoRef.current, res, device.name);
+            await startWebRTCStream(videoRef.current, res, device.name, tuyaForm);
           }
         }, 100);
 
@@ -405,9 +474,16 @@ const CameraCard: React.FC<{
         }, 1500);
       } else {
         setStatusMsg(`Avviso: ${res.message}`);
+        setStreamError({
+          code: res.code,
+          message: res.message,
+        });
       }
     } catch (err: any) {
       setStatusMsg(`Errore stream: ${err?.message || String(err)}`);
+      setStreamError({
+        message: err?.message || 'Errore di connessione',
+      });
     } finally {
       setIsFetchingStream(false);
     }
@@ -429,13 +505,13 @@ const CameraCard: React.FC<{
   return (
     <div className="w-full bg-white dark:bg-[#18181c] rounded-[24px] border border-slate-200/80 dark:border-white/10 overflow-hidden shadow-md flex flex-col group transition hover:border-amber-400/40">
       {/* Video Container Frame */}
-      <div className="relative w-full h-[210px] sm:h-[250px] bg-black overflow-hidden select-none">
+      <div className="relative w-full h-[220px] sm:h-[260px] bg-black overflow-hidden select-none">
         {showTuyaConfigModal ? (
           <div className="absolute inset-0 z-30 bg-[#0d0d10] p-4 overflow-y-auto text-left text-xs text-white">
             <div className="flex items-center justify-between pb-2 border-b border-white/10 mb-3">
               <div className="flex items-center gap-1.5 text-amber-400 font-bold">
                 <Video className="w-4 h-4" />
-                <span>Configurazione Tuya WebRTC & Credenziali</span>
+                <span>Configurazione Telecamera & Streaming</span>
               </div>
               <button
                 type="button"
@@ -446,53 +522,88 @@ const CameraCard: React.FC<{
               </button>
             </div>
 
-            <form onSubmit={handleSaveTuyaConfig} className="space-y-2.5">
-              <div>
-                <label className="text-[11px] font-bold text-slate-300 block mb-0.5">Tuya Client ID (Access ID)</label>
+            <form onSubmit={handleSaveTuyaConfig} className="space-y-3">
+              {/* Option 1: Tuya Cloud API Automatic Stream Generation (Primary) */}
+              <div className="space-y-2 p-3 rounded-xl bg-white/5 border border-amber-400/30">
+                <div className="flex items-center justify-between">
+                  <span className="text-[11px] font-bold text-amber-300 flex items-center gap-1.5">
+                    <Zap className="w-3.5 h-3.5" />
+                    <span>Generazione Automatica Stream Tuya (Predefinito)</span>
+                  </span>
+                  <span className="text-[9px] bg-amber-400/20 text-amber-300 px-1.5 py-0.5 rounded font-mono font-bold">
+                    API /stream/allocate
+                  </span>
+                </div>
+                <p className="text-[10px] text-slate-300 leading-snug">
+                  La PWA richiede e alloca automaticamente il flusso live temporaneo (WebRTC / HLS) tramite le API Tuya Cloud senza necessità di inserire manualmente un URL.
+                </p>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-1">
+                  <div>
+                    <label className="text-[10px] text-slate-400 block mb-0.5">Tuya Client ID (Access ID)</label>
+                    <input
+                      type="text"
+                      value={tuyaForm.clientId}
+                      onChange={(e) => setTuyaForm({ ...tuyaForm, clientId: e.target.value })}
+                      placeholder="Client ID Tuya IoT"
+                      className="w-full bg-[#18181c] border border-white/15 rounded-lg px-2.5 py-1.5 text-white font-mono text-xs focus:border-amber-400 focus:outline-none"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="text-[10px] text-slate-400 block mb-0.5">Tuya Client Secret</label>
+                    <input
+                      type="password"
+                      value={tuyaForm.clientSecret}
+                      onChange={(e) => setTuyaForm({ ...tuyaForm, clientSecret: e.target.value })}
+                      placeholder="Client Secret Tuya IoT"
+                      className="w-full bg-[#18181c] border border-white/15 rounded-lg px-2.5 py-1.5 text-white font-mono text-xs focus:border-amber-400 focus:outline-none"
+                    />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-2">
+                  <div>
+                    <label className="text-[10px] text-slate-400 block mb-0.5">Device ID Telecamera</label>
+                    <input
+                      type="text"
+                      value={tuyaForm.deviceId || device.tuyaDeviceId || ''}
+                      onChange={(e) => setTuyaForm({ ...tuyaForm, deviceId: e.target.value })}
+                      placeholder="Device ID (es. eb9...)"
+                      className="w-full bg-[#18181c] border border-white/15 rounded-lg px-2.5 py-1.5 text-white font-mono text-xs focus:border-amber-400 focus:outline-none"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-[10px] text-slate-400 block mb-0.5">Data Center Region</label>
+                    <select
+                      value={tuyaForm.region}
+                      onChange={(e) => setTuyaForm({ ...tuyaForm, region: e.target.value as any })}
+                      className="w-full bg-[#18181c] border border-white/15 rounded-lg px-2.5 py-1.5 text-white text-xs focus:border-amber-400 focus:outline-none"
+                    >
+                      <option value="eu">Europe (EU - openapi.tuyaeu.com)</option>
+                      <option value="us">America (US - openapi.tuyaus.com)</option>
+                      <option value="cn">China (CN - openapi.tuyacn.com)</option>
+                      <option value="in">India (IN - openapi.tuyain.com)</option>
+                    </select>
+                  </div>
+                </div>
+              </div>
+
+              {/* Option 2: Optional Direct Stream URL Fallback */}
+              <div className="p-2.5 rounded-xl bg-white/5 border border-white/10">
+                <label className="text-[11px] font-bold text-slate-300 block mb-1">
+                  Opzionale: URL Flusso Diretto (Fallback)
+                </label>
                 <input
                   type="text"
-                  value={tuyaForm.clientId}
-                  onChange={(e) => setTuyaForm({ ...tuyaForm, clientId: e.target.value })}
-                  placeholder="Incolla Client ID Tuya IoT"
+                  value={tuyaForm.directStreamUrl || ''}
+                  onChange={(e) => setTuyaForm({ ...tuyaForm, directStreamUrl: e.target.value })}
+                  placeholder="Lascia vuoto per usare Tuya Cloud automatico"
                   className="w-full bg-[#18181c] border border-white/15 rounded-lg px-2.5 py-1.5 text-white font-mono text-xs focus:border-amber-400 focus:outline-none"
                 />
-              </div>
-
-              <div>
-                <label className="text-[11px] font-bold text-slate-300 block mb-0.5">Tuya Client Secret</label>
-                <input
-                  type="password"
-                  value={tuyaForm.clientSecret}
-                  onChange={(e) => setTuyaForm({ ...tuyaForm, clientSecret: e.target.value })}
-                  placeholder="Incolla Client Secret Tuya IoT"
-                  className="w-full bg-[#18181c] border border-white/15 rounded-lg px-2.5 py-1.5 text-white font-mono text-xs focus:border-amber-400 focus:outline-none"
-                />
-              </div>
-
-              <div className="grid grid-cols-2 gap-2">
-                <div>
-                  <label className="text-[11px] font-bold text-slate-300 block mb-0.5">Device ID Telecamera</label>
-                  <input
-                    type="text"
-                    value={tuyaForm.deviceId || device.tuyaDeviceId || ''}
-                    onChange={(e) => setTuyaForm({ ...tuyaForm, deviceId: e.target.value })}
-                    placeholder="Device ID (es. eb9...)"
-                    className="w-full bg-[#18181c] border border-white/15 rounded-lg px-2.5 py-1.5 text-white font-mono text-xs focus:border-amber-400 focus:outline-none"
-                  />
-                </div>
-                <div>
-                  <label className="text-[11px] font-bold text-slate-300 block mb-0.5">Data Center Region</label>
-                  <select
-                    value={tuyaForm.region}
-                    onChange={(e) => setTuyaForm({ ...tuyaForm, region: e.target.value as any })}
-                    className="w-full bg-[#18181c] border border-white/15 rounded-lg px-2.5 py-1.5 text-white text-xs focus:border-amber-400 focus:outline-none"
-                  >
-                    <option value="eu">Europe (EU)</option>
-                    <option value="us">America (US)</option>
-                    <option value="cn">China (CN)</option>
-                    <option value="in">India (IN)</option>
-                  </select>
-                </div>
+                <p className="text-[10px] text-slate-400 mt-1">
+                  Se lasciato vuoto, la PWA utilizzerà esclusivamente il link temporaneo generato in automatico dalle credenziali Tuya Cloud.
+                </p>
               </div>
 
               {statusMsg && (
@@ -501,62 +612,74 @@ const CameraCard: React.FC<{
                 </div>
               )}
 
-              <div className="pt-1 flex items-center justify-between">
-                <button
-                  type="submit"
-                  disabled={isFetchingStream}
-                  className="bg-amber-400 hover:bg-amber-300 text-slate-950 font-bold px-4 py-1.5 rounded-lg text-xs flex items-center gap-1.5 shadow-md cursor-pointer"
-                >
-                  {isFetchingStream ? (
-                    <>
-                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                      <span>Verifica /api/tuya-stream...</span>
-                    </>
-                  ) : savedSuccess ? (
-                    <>
-                      <Check className="w-3.5 h-3.5" />
-                      <span>Flusso WebRTC Salvato!</span>
-                    </>
-                  ) : (
-                    <>
-                      <Save className="w-3.5 h-3.5" />
-                      <span>Salva Configurazione Tuya WebRTC</span>
-                    </>
-                  )}
-                </button>
-                <span className="text-[10px] text-slate-400">Piattaforma Tuya Cloud</span>
+              <div className="pt-1 flex items-center justify-between gap-2">
+                <div className="flex items-center gap-2">
+                  <button
+                    type="submit"
+                    disabled={isFetchingStream}
+                    className="bg-amber-400 hover:bg-amber-300 text-slate-950 font-bold px-3.5 py-2 rounded-lg text-xs flex items-center gap-1.5 shadow-md cursor-pointer"
+                  >
+                    {isFetchingStream ? (
+                      <>
+                        <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                        <span>Verifica...</span>
+                      </>
+                    ) : savedSuccess ? (
+                      <>
+                        <Check className="w-3.5 h-3.5" />
+                        <span>Salvato!</span>
+                      </>
+                    ) : (
+                      <>
+                        <Save className="w-3.5 h-3.5" />
+                        <span>Salva Configurazione</span>
+                      </>
+                    )}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleResetConfig}
+                    className="px-2.5 py-2 rounded-lg bg-white/10 hover:bg-rose-500/20 text-slate-300 hover:text-rose-300 border border-white/10 hover:border-rose-500/30 text-xs flex items-center gap-1 transition cursor-pointer"
+                    title="Ripristina alle impostazioni predefinite"
+                  >
+                    <RotateCcw className="w-3 h-3" />
+                    <span>Ripristina</span>
+                  </button>
+                </div>
+                <span className="text-[10px] text-slate-400 hidden sm:inline">WebRTC / HLS / FLV</span>
               </div>
             </form>
           </div>
         ) : (
           <>
-            {/* HTML5 Native Video player on Card with Autoplay */}
-            {isPlaying ? (
-              <div className="relative w-full h-full bg-black">
-                <video
-                  id="tuya-video"
-                  ref={videoRef}
-                  src={activeStreamUrl && activeStreamUrl !== 'webrtc-stream-active' ? activeStreamUrl : undefined}
-                  autoPlay={true}
-                  playsInline={true}
-                  controls={true}
-                  muted={isMuted}
-                  className="w-full h-full object-cover bg-black"
-                />
-                {isFetchingStream && (
-                  <div className="absolute inset-0 bg-black/60 backdrop-blur-xs flex items-center justify-center gap-2 text-amber-400 font-mono text-xs z-10 pointer-events-none">
-                    <Loader2 className="w-4 h-4 animate-spin" />
-                    <span>Caricamento Streaming Tuya...</span>
-                  </div>
-                )}
-              </div>
-            ) : (
-              <img
-                src={bgImage}
-                alt={device.name}
-                className="w-full h-full object-cover brightness-[0.65] transition-all duration-700"
+            {/* HTML5 Native Video player on Card */}
+            <div className="relative w-full h-full bg-black">
+              <video
+                id={`tuya-video-${device.id}`}
+                ref={videoRef}
+                src={activeStreamUrl && activeStreamUrl !== 'webrtc-stream-active' ? activeStreamUrl : undefined}
+                autoPlay={true}
+                playsInline={true}
+                controls={false}
+                muted={isMuted}
+                className="w-full h-full object-cover bg-black"
               />
-            )}
+              {isFetchingStream && (
+                <div className="absolute inset-0 bg-black/70 backdrop-blur-xs flex items-center justify-center gap-2 text-amber-400 font-mono text-xs z-10 pointer-events-none">
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                  <span>Connessione Flusso Telecamera...</span>
+                </div>
+              )}
+              {streamError && isPlaying && (
+                <div className="absolute top-12 inset-x-3 z-20 bg-black/80 backdrop-blur-md border border-rose-500/30 p-2.5 rounded-xl text-center">
+                  <div className="text-[11px] font-bold text-rose-400 flex items-center justify-center gap-1">
+                    <AlertTriangle className="w-3.5 h-3.5" />
+                    <span>{streamError.code === '60001001' ? 'Quota Tuya Esaurita (60001001)' : 'Flusso non disponibile'}</span>
+                  </div>
+                  <p className="text-[9px] text-slate-300 mt-0.5 line-clamp-2">{streamError.message}</p>
+                </div>
+              )}
+            </div>
 
             {/* Dark Overlay Gradients for Readability */}
             <div className="absolute inset-0 bg-gradient-to-b from-black/70 via-transparent to-black/50 pointer-events-none" />
@@ -570,28 +693,26 @@ const CameraCard: React.FC<{
               </div>
 
               <div className="flex items-center gap-2">
-                {isPlaying && (
-                  <button
-                    type="button"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      setIsMuted(!isMuted);
-                    }}
-                    onTouchEnd={(e) => {
-                      if (e.cancelable) e.preventDefault();
-                      e.stopPropagation();
-                      setIsMuted(!isMuted);
-                    }}
-                    className="p-1 rounded-full bg-black/50 hover:bg-black/70 text-white border border-white/20 backdrop-blur-md transition cursor-pointer flex items-center justify-center shadow-lg hover:border-amber-400"
-                    title={isMuted ? 'Attiva Audio' : 'Disattiva Audio (Mute)'}
-                  >
-                    {isMuted ? (
-                      <VolumeX className="w-3.5 h-3.5 text-rose-400" />
-                    ) : (
-                      <Volume2 className="w-3.5 h-3.5 text-emerald-400" />
-                    )}
-                  </button>
-                )}
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setIsMuted(!isMuted);
+                  }}
+                  onTouchEnd={(e) => {
+                    if (e.cancelable) e.preventDefault();
+                    e.stopPropagation();
+                    setIsMuted(!isMuted);
+                  }}
+                  className="p-1 rounded-full bg-black/50 hover:bg-black/70 text-white border border-white/20 backdrop-blur-md transition cursor-pointer flex items-center justify-center shadow-lg hover:border-amber-400"
+                  title={isMuted ? 'Attiva Audio' : 'Disattiva Audio (Mute)'}
+                >
+                  {isMuted ? (
+                    <VolumeX className="w-3.5 h-3.5 text-rose-400" />
+                  ) : (
+                    <Volume2 className="w-3.5 h-3.5 text-emerald-400" />
+                  )}
+                </button>
                 <button
                   type="button"
                   onClick={(e) => {
@@ -604,7 +725,7 @@ const CameraCard: React.FC<{
                     setShowTuyaConfigModal(true);
                   }}
                   className="p-1 rounded-full bg-black/40 hover:bg-black/60 text-amber-300 border border-white/20 backdrop-blur-md transition cursor-pointer"
-                  title="Configura Credenziali Tuya WebRTC"
+                  title="Configura Credenziali & Flusso Telecamera"
                 >
                   <Key className="w-3.5 h-3.5" />
                 </button>
@@ -641,7 +762,7 @@ const CameraCard: React.FC<{
                   e.stopPropagation();
                   setIsPlaying(!isPlaying);
                 }}
-                className={`pointer-events-auto w-13 h-13 sm:w-16 sm:h-16 rounded-full border-2 border-white/90 backdrop-blur-[2px] flex items-center justify-center text-white hover:scale-105 active:scale-95 transition cursor-pointer shadow-2xl ${
+                className={`pointer-events-auto w-13 h-13 sm:w-16 sm:h-16 rounded-full border-2 backdrop-blur-[2px] flex items-center justify-center text-white hover:scale-105 active:scale-95 transition cursor-pointer shadow-2xl ${
                   isPlaying ? 'bg-amber-500/30 border-amber-400' : 'bg-black/35 border-white/90 hover:bg-black/50'
                 }`}
                 title={isPlaying ? 'Pausa / Interrompi Stream Live' : 'Avvia Streaming Live'}
@@ -658,9 +779,14 @@ const CameraCard: React.FC<{
             {isPlaying && (
               <div className="absolute bottom-3 left-3.5 z-10 flex items-center gap-1.5 bg-rose-600/90 text-white px-2.5 py-0.5 rounded-full text-[10px] font-extrabold tracking-wider border border-rose-400/40 backdrop-blur-md animate-pulse">
                 <span className="w-1.5 h-1.5 rounded-full bg-white" />
-                LIVE WEBRTC
+                <span>{tuyaForm.directStreamUrl ? 'LIVE DIRECT' : 'LIVE WEBRTC'}</span>
               </div>
             )}
+
+            {/* Time Overlay */}
+            <div className="absolute bottom-3 right-3.5 z-10 text-[10px] font-mono text-white/80 drop-shadow-[0_1px_2px_rgba(0,0,0,0.8)]">
+              {timeStr}
+            </div>
           </>
         )}
 

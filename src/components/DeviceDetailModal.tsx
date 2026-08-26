@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { SmartDevice, DeviceSchedule } from '../types';
 import { DeviceScheduleSection } from './DeviceScheduleSection';
-import { getTuyaConfig, saveTuyaConfig, TuyaCameraConfig, requestTuyaWebRTCStream, startWebRTCStream } from '../tuyaConfig';
+import { getTuyaConfig, saveTuyaConfig, TuyaCameraConfig, requestTuyaWebRTCStream, startWebRTCStream, cleanupVideoMedia } from '../tuyaConfig';
 import { 
   X, 
   Power, 
@@ -183,8 +183,17 @@ export const DeviceDetailModal: React.FC<DeviceDetailModalProps> = ({
         cfg.deviceId = devId;
       }
       setTuyaWebRTCConfig(cfg);
-      if (cfg.streamUrl) {
+      if (cfg.directStreamUrl) {
+        setActiveStreamUrl(cfg.directStreamUrl);
+      } else if (cfg.streamUrl) {
         setActiveStreamUrl(cfg.streamUrl);
+      }
+
+      // Automatically allocate stream from Tuya Cloud if camera device is opened
+      if (device.category === 'camera') {
+        setTimeout(() => {
+          handleFetchStreamFromBackend(cfg);
+        }, 150);
       }
     }
   }, [device]);
@@ -209,7 +218,7 @@ export const DeviceDetailModal: React.FC<DeviceDetailModalProps> = ({
         // Bind WebRTC tracks / media stream directly to the video element
         setTimeout(async () => {
           if (videoRef.current) {
-            await startWebRTCStream(videoRef.current, result, device.name);
+            await startWebRTCStream(videoRef.current, result, device.name, cfg);
           }
         }, 100);
 

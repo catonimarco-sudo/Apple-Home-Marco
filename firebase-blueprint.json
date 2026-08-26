@@ -51,6 +51,14 @@
           "read": "true",
           "write": "true"
         }
+      },
+      "settings": {
+        "title": "Settings",
+        "description": "App settings including room configurations and custom ordering",
+        "security": {
+          "read": "true",
+          "write": "true"
+        }
       }
     }
   }

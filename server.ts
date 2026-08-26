@@ -399,23 +399,35 @@ ${JSON.stringify(automations || [], null, 2)}
   }
 });
 
+import fs from "fs";
+
 // ----------------------------------------------------
 // VITE OR STATIC SERVER SETUP
 // ----------------------------------------------------
 async function startServer() {
-  if (process.env.NODE_ENV !== "production") {
+  const distPath = path.resolve(process.cwd(), "dist");
+  const hasDist = fs.existsSync(path.join(distPath, "index.html"));
+
+  if (process.env.NODE_ENV !== "production" && !hasDist) {
     const vite = await createViteServer({
       server: { middlewareMode: true },
       appType: "spa",
     });
     app.use(vite.middlewares);
   } else {
-    const distPath = path.join(process.cwd(), "dist");
     app.use(express.static(distPath));
     app.get("*", (req, res) => {
       res.sendFile(path.join(distPath, "index.html"));
     });
   }
+
+  // Global error handler
+  app.use((err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {
+    console.error("Unhandled server error:", err);
+    if (!res.headersSent) {
+      res.status(500).json({ error: "Internal Server Error", details: err?.message || String(err) });
+    }
+  });
 
   app.listen(PORT, "0.0.0.0", () => {
     console.log(`Server domotica running on http://0.0.0.0:${PORT}`);

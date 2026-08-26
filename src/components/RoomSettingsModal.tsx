@@ -28,7 +28,12 @@ import {
   AlertTriangle,
   RefreshCw,
   Sliders,
-  Palette
+  Palette,
+  ArrowLeft,
+  ArrowRight,
+  ArrowUp,
+  ArrowDown,
+  GripVertical
 } from 'lucide-react';
 import { SmartDevice, RoomConfig, RoomName } from '../types';
 
@@ -43,6 +48,8 @@ interface RoomSettingsModalProps {
   onSaveConfig?: (originalName: string, newConfig: RoomConfig, assignedDeviceIds: string[]) => void;
   onDeleteRoom: (roomName: string) => void;
   allRooms?: string[];
+  roomOrder?: string[];
+  onReorderRooms?: (newOrder: string[]) => void;
 }
 
 export const ROOM_ICONS_LIST = [
@@ -121,6 +128,9 @@ export const RoomSettingsModal: React.FC<RoomSettingsModalProps> = ({
   onSaveRoomConfig,
   onSaveConfig,
   onDeleteRoom,
+  allRooms = [],
+  roomOrder = [],
+  onReorderRooms,
 }) => {
   const activeConfig = roomConfig || existingConfig;
   const [name, setName] = useState(roomName);
@@ -128,6 +138,21 @@ export const RoomSettingsModal: React.FC<RoomSettingsModalProps> = ({
   const [wallpaperUrl, setWallpaperUrl] = useState(activeConfig?.wallpaperUrl || '');
   const [selectedDeviceIds, setSelectedDeviceIds] = useState<string[]>([]);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+
+  // Compute current room position
+  const currentRoomsList = allRooms && allRooms.length > 0 ? allRooms : (roomOrder && roomOrder.length > 0 ? roomOrder : []);
+  const currentPosIndex = currentRoomsList.indexOf(roomName);
+
+  const handleMovePosition = (direction: 'left' | 'right') => {
+    if (!onReorderRooms || currentPosIndex === -1) return;
+    const targetIndex = direction === 'left' ? currentPosIndex - 1 : currentPosIndex + 1;
+    if (targetIndex < 0 || targetIndex >= currentRoomsList.length) return;
+
+    const listCopy = [...currentRoomsList];
+    const [moved] = listCopy.splice(currentPosIndex, 1);
+    listCopy.splice(targetIndex, 0, moved);
+    onReorderRooms(listCopy);
+  };
 
   useEffect(() => {
     const cfg = roomConfig || existingConfig;
@@ -433,16 +458,67 @@ export const RoomSettingsModal: React.FC<RoomSettingsModalProps> = ({
               </div>
             </div>
 
+            {/* Room Order / Position in Dashboard */}
+            {onReorderRooms && currentRoomsList.length > 1 && (
+              <div className="bg-black/30 border border-white/10 rounded-2xl p-4 space-y-3">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <label className="text-xs font-bold text-slate-300 uppercase tracking-wider flex items-center gap-1.5">
+                      <GripVertical className="w-4 h-4 text-amber-400" />
+                      <span>Posizione & Ordinamento Stanza</span>
+                    </label>
+                    <p className="text-[11px] text-slate-400 mt-0.5">
+                      {currentPosIndex !== -1 
+                        ? `Posizione attuale: ${currentPosIndex + 1} su ${currentRoomsList.length}` 
+                        : 'Sposta la stanza nella sequenza'}
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => handleMovePosition('left')}
+                      disabled={currentPosIndex <= 0}
+                      className={`px-3 py-1.5 rounded-xl border text-xs font-bold transition flex items-center gap-1.5 cursor-pointer ${
+                        currentPosIndex <= 0
+                          ? 'border-white/5 bg-white/5 text-slate-600 cursor-not-allowed'
+                          : 'border-white/15 bg-white/10 hover:bg-white/20 text-white active:scale-95'
+                      }`}
+                      title="Sposta prima / indietro nella lista"
+                    >
+                      <ArrowLeft className="w-3.5 h-3.5 text-amber-400" />
+                      <span>Indietro</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleMovePosition('right')}
+                      disabled={currentPosIndex === -1 || currentPosIndex >= currentRoomsList.length - 1}
+                      className={`px-3 py-1.5 rounded-xl border text-xs font-bold transition flex items-center gap-1.5 cursor-pointer ${
+                        currentPosIndex === -1 || currentPosIndex >= currentRoomsList.length - 1
+                          ? 'border-white/5 bg-white/5 text-slate-600 cursor-not-allowed'
+                          : 'border-white/15 bg-white/10 hover:bg-white/20 text-white active:scale-95'
+                      }`}
+                      title="Sposta dopo / avanti nella lista"
+                    >
+                      <span>Avanti</span>
+                      <ArrowRight className="w-3.5 h-3.5 text-amber-400" />
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
+
             {/* Delete Room Section */}
             <div className="pt-3 border-t border-white/10 flex items-center justify-between">
               <div>
                 <h5 className="text-xs font-bold text-rose-300">Elimina Stanza</h5>
-                <p className="text-[11px] text-slate-400">Rimuove la stanza dalla dashboard</p>
+                <p className="text-[11px] text-slate-400">
+                  Rimuove la stanza. I dispositivi vengono spostati su "Non assegnati"
+                </p>
               </div>
               <button
                 type="button"
                 onClick={() => setShowDeleteConfirm(true)}
-                className="px-3 py-1.5 rounded-xl bg-rose-600/20 hover:bg-rose-600/35 text-rose-300 border border-rose-500/40 text-xs font-bold transition flex items-center gap-1.5 cursor-pointer"
+                className="px-3.5 py-2 rounded-xl bg-rose-600/20 hover:bg-rose-600/35 text-rose-300 border border-rose-500/40 text-xs font-bold transition flex items-center gap-1.5 cursor-pointer"
               >
                 <Trash2 className="w-3.5 h-3.5" />
                 <span>Elimina Stanza</span>

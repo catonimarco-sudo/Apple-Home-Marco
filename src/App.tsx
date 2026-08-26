@@ -18,6 +18,8 @@ import { motion, AnimatePresence } from 'motion/react';
 import { 
   subscribeToDevices, 
   subscribeToAutomations, 
+  subscribeToRoomSettings,
+  saveRoomSettingsToDb,
   saveDeviceToDb, 
   updateDeviceStateInDb, 
   deleteDeviceFromDb, 
@@ -92,6 +94,16 @@ export default function App() {
     }
   });
 
+  // Room Custom Ordering list (persisted in safeStorage)
+  const [roomOrder, setRoomOrder] = useState<string[]>(() => {
+    try {
+      const saved = safeStorage.getItem('smartlife_hub_room_order');
+      return saved ? JSON.parse(saved) : [];
+    } catch {
+      return [];
+    }
+  });
+
   // Room Configurations (icons & dedicated wallpapers)
   const [roomConfigs, setRoomConfigs] = useState<Record<string, RoomConfig>>(() => {
     try {
@@ -131,6 +143,7 @@ export default function App() {
   useEffect(() => {
     let unsubscribeDevices: (() => void) | undefined;
     let unsubscribeAutomations: (() => void) | undefined;
+    let unsubscribeRoomSettings: (() => void) | undefined;
 
     async function initFirestoreRealtime() {
       await seedInitialDataIfEmpty(INITIAL_DEVICES, INITIAL_AUTOMATIONS);
@@ -146,6 +159,25 @@ export default function App() {
           setAutomations(updatedAutomations);
         }
       });
+
+      unsubscribeRoomSettings = subscribeToRoomSettings((roomData) => {
+        if (roomData.roomOrder && Array.isArray(roomData.roomOrder)) {
+          setRoomOrder(roomData.roomOrder);
+          safeStorage.setItem('smartlife_hub_room_order', JSON.stringify(roomData.roomOrder));
+        }
+        if (roomData.customRooms && Array.isArray(roomData.customRooms)) {
+          setCustomRooms(roomData.customRooms);
+          safeStorage.setItem('smartlife_hub_custom_rooms', JSON.stringify(roomData.customRooms));
+        }
+        if (roomData.deletedRooms && Array.isArray(roomData.deletedRooms)) {
+          setDeletedRooms(roomData.deletedRooms);
+          safeStorage.setItem('smartlife_hub_deleted_rooms', JSON.stringify(roomData.deletedRooms));
+        }
+        if (roomData.roomConfigs && typeof roomData.roomConfigs === 'object') {
+          setRoomConfigs(roomData.roomConfigs);
+          safeStorage.setItem('smartlife_hub_room_configs', JSON.stringify(roomData.roomConfigs));
+        }
+      });
     }
 
     initFirestoreRealtime();
@@ -153,6 +185,7 @@ export default function App() {
     return () => {
       if (unsubscribeDevices) unsubscribeDevices();
       if (unsubscribeAutomations) unsubscribeAutomations();
+      if (unsubscribeRoomSettings) unsubscribeRoomSettings();
     };
   }, []);
 
@@ -913,13 +946,29 @@ export default function App() {
     };
     setRoomConfigs(updatedConfigs);
 
+    // Add to roomOrder if not present
+    let updatedOrder = roomOrder;
+    if (!roomOrder.includes(newRoomName)) {
+      updatedOrder = [...roomOrder, newRoomName];
+      setRoomOrder(updatedOrder);
+    }
+
     try {
       safeStorage.setItem('smartlife_hub_custom_rooms', JSON.stringify(updatedCustom));
       safeStorage.setItem('smartlife_hub_deleted_rooms', JSON.stringify(updatedDeleted));
       safeStorage.setItem('smartlife_hub_room_configs', JSON.stringify(updatedConfigs));
+      safeStorage.setItem('smartlife_hub_room_order', JSON.stringify(updatedOrder));
     } catch (e) {
-      console.warn('Could not persist custom rooms:', e);
+      console.warn('Could not persist custom rooms to safeStorage:', e);
     }
+
+    // Persist to Firestore DB
+    saveRoomSettingsToDb({
+      customRooms: updatedCustom,
+      deletedRooms: updatedDeleted,
+      roomConfigs: updatedConfigs,
+      roomOrder: updatedOrder,
+    }).catch((err) => console.warn('Firestore room settings sync notice:', err));
 
     if (assignedDeviceIds.length > 0) {
       const updatedDevices = devices.map((d) =>
@@ -945,6 +994,13 @@ export default function App() {
       }
     }
     setCustomRooms(updatedCustom);
+
+    // Update roomOrder if name changed
+    let updatedOrder = [...roomOrder];
+    if (nameChanged) {
+      updatedOrder = updatedOrder.map((r) => (r === originalName ? newConfig.name : r));
+      setRoomOrder(updatedOrder);
+    }
 
     // 2. Update roomConfigs mapping
     const updatedConfigs: Record<string, RoomConfig> = { ...roomConfigs };
@@ -972,13 +1028,21 @@ export default function App() {
       setSelectedRoom(newConfig.name as RoomName);
     }
 
-    // 5. Persist to safeStorage
+    // 5. Persist to safeStorage & Firestore DB
     try {
       safeStorage.setItem('smartlife_hub_custom_rooms', JSON.stringify(updatedCustom));
       safeStorage.setItem('smartlife_hub_room_configs', JSON.stringify(updatedConfigs));
+      safeStorage.setItem('smartlife_hub_room_order', JSON.stringify(updatedOrder));
     } catch (err) {
       console.warn('Storage save error:', err);
     }
+
+    saveRoomSettingsToDb({
+      customRooms: updatedCustom,
+      deletedRooms,
+      roomConfigs: updatedConfigs,
+      roomOrder: updatedOrder,
+    }).catch((err) => console.warn('Firestore room settings sync notice:', err));
 
     // 6. Sync updated devices to Cloud DB
     const changedDevices = updatedDevices.filter((d) => assignedDeviceIds.includes(d.id) || (d.room === ('Senza Stanza' as RoomName) && devices.find(x => x.id === d.id)?.room === originalName));
@@ -989,21 +1053,42 @@ export default function App() {
     showToast(`Stanza "${newConfig.name}" personalizzata con successo!`);
   };
 
+  const handleReorderRooms = (newOrder: string[]) => {
+    setRoomOrder(newOrder);
+    try {
+      safeStorage.setItem('smartlife_hub_room_order', JSON.stringify(newOrder));
+    } catch (err) {
+      console.warn('Storage save room order error:', err);
+    }
+
+    saveRoomSettingsToDb({
+      roomOrder: newOrder,
+      customRooms,
+      deletedRooms,
+      roomConfigs,
+    }).catch((err) => console.warn('Firestore room reorder notice:', err));
+
+    showToast('Ordine delle stanze aggiornato e salvato.');
+  };
+
   const handleDeleteRoom = async (roomToDelete: string) => {
     // 1. Add to deletedRooms
     const updatedDeleted = Array.from(new Set([...deletedRooms, roomToDelete]));
     setDeletedRooms(updatedDeleted);
 
-    // 2. Remove from customRooms
+    // 2. Remove from customRooms & roomOrder
     const updatedCustom = customRooms.filter((r) => r !== roomToDelete);
     setCustomRooms(updatedCustom);
+
+    const updatedOrder = roomOrder.filter((r) => r !== roomToDelete);
+    setRoomOrder(updatedOrder);
 
     // 3. Clean up roomConfigs
     const updatedConfigs = { ...roomConfigs };
     delete updatedConfigs[roomToDelete];
     setRoomConfigs(updatedConfigs);
 
-    // 4. Reassign devices that were in this room
+    // 4. Reassign devices that were in this room to "Senza Stanza" (Non assegnati)
     const affectedDeviceIds: string[] = [];
     const updatedDevices = devices.map((d) => {
       if (d.room === roomToDelete) {
@@ -1023,18 +1108,27 @@ export default function App() {
     try {
       safeStorage.setItem('smartlife_hub_deleted_rooms', JSON.stringify(updatedDeleted));
       safeStorage.setItem('smartlife_hub_custom_rooms', JSON.stringify(updatedCustom));
+      safeStorage.setItem('smartlife_hub_room_order', JSON.stringify(updatedOrder));
       safeStorage.setItem('smartlife_hub_room_configs', JSON.stringify(updatedConfigs));
     } catch (e) {
       console.warn('Storage error on room deletion:', e);
     }
 
-    // 7. Save affected devices to Firestore DB
+    // 7. Save room settings to Firestore DB
+    saveRoomSettingsToDb({
+      deletedRooms: updatedDeleted,
+      customRooms: updatedCustom,
+      roomOrder: updatedOrder,
+      roomConfigs: updatedConfigs,
+    }).catch((err) => console.warn('Firestore room settings sync notice:', err));
+
+    // 8. Save affected devices to Firestore DB
     if (affectedDeviceIds.length > 0) {
       const changed = updatedDevices.filter((d) => affectedDeviceIds.includes(d.id));
       await saveBatchDevicesToDb(changed);
     }
 
-    showToast(`Stanza "${roomToDelete}" eliminata.`);
+    showToast(`Stanza "${roomToDelete}" eliminata (dispositivi spostati su Non assegnati).`);
   };
 
   const handleOpenRoomSettings = (roomName: string) => {
@@ -1116,14 +1210,27 @@ export default function App() {
     return list;
   }, [devices, selectedRoom, searchQuery, deviceOrder]);
 
-  // Aggregate all unique room names (filtering out deleted rooms)
+  // Aggregate all unique room names (filtering out deleted rooms and sorting by roomOrder)
   const allRoomsList = useMemo(() => {
-    const base = ['Tutti', 'Salotto', 'Cucina', 'Camera da Letto', 'Bagno', 'Studio', 'Ingresso', 'Giardino', 'Garage'];
+    const base = ['Salotto', 'Cucina', 'Camera da Letto', 'Bagno', 'Studio', 'Ingresso', 'Giardino', 'Garage'];
     const fromDevices = devices.map((d) => d.room).filter(Boolean);
     const combined = Array.from(new Set([...base, ...customRooms, ...fromDevices]));
     const deletedSet = new Set(deletedRooms.map((r) => r.toLowerCase()));
-    return combined.filter((r) => r === 'Tutti' || !deletedSet.has(r.toLowerCase()));
-  }, [devices, customRooms, deletedRooms]);
+    const filtered = combined.filter((r) => !deletedSet.has(r.toLowerCase()));
+
+    if (roomOrder && roomOrder.length > 0) {
+      filtered.sort((a, b) => {
+        const idxA = roomOrder.indexOf(a);
+        const idxB = roomOrder.indexOf(b);
+        if (idxA === -1 && idxB === -1) return 0;
+        if (idxA === -1) return 1;
+        if (idxB === -1) return -1;
+        return idxA - idxB;
+      });
+    }
+
+    return ['Tutti', ...filtered];
+  }, [devices, customRooms, deletedRooms, roomOrder]);
 
   // Remote Webhook / URL Query Command Listener on App Load (e.g. /?q=accendi%20ripostiglio or /?device=Ripostiglio&action=ON)
   const webhookExecutedRef = useRef<string>('');
@@ -1488,6 +1595,8 @@ export default function App() {
               customRooms={customRooms}
               deletedRooms={deletedRooms}
               roomConfigs={roomConfigs}
+              roomOrder={roomOrder}
+              onReorderRooms={handleReorderRooms}
               onOpenAddRoomModal={() => setIsAddRoomModalOpen(true)}
               onOpenRoomSettings={handleOpenRoomSettings}
             />
@@ -1667,9 +1776,13 @@ export default function App() {
             customRooms={customRooms}
             deletedRooms={deletedRooms}
             roomConfigs={roomConfigs}
+            roomOrder={roomOrder}
+            onReorderRooms={handleReorderRooms}
+            onDeleteRoom={handleDeleteRoom}
             onTogglePower={handleTogglePower}
             onUpdateState={handleUpdateDeviceState}
             onClickDetail={(d) => setSelectedDevice(d)}
+            onDeleteDevice={handleDeleteDevice}
             onOpenAddRoomModal={() => setIsAddRoomModalOpen(true)}
             onOpenRoomSettings={handleOpenRoomSettings}
             onTurnOffRoom={handleTurnOffRoom}
@@ -1803,6 +1916,8 @@ export default function App() {
         onSaveConfig={handleSaveRoomConfig}
         onDeleteRoom={handleDeleteRoom}
         allRooms={allRoomsList.filter(r => r !== 'Tutti')}
+        roomOrder={roomOrder}
+        onReorderRooms={handleReorderRooms}
       />
 
       <WallpaperModal

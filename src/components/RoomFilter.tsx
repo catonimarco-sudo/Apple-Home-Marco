@@ -35,6 +35,8 @@ interface RoomFilterProps {
   customRooms?: string[];
   deletedRooms?: string[];
   roomConfigs?: Record<string, RoomConfig>;
+  roomOrder?: string[];
+  onReorderRooms?: (newOrder: string[]) => void;
   onOpenAddRoomModal?: () => void;
   onOpenRoomSettings?: (roomName: string) => void;
 }
@@ -81,18 +83,35 @@ export const RoomFilter: React.FC<RoomFilterProps> = ({
   customRooms = [],
   deletedRooms = [],
   roomConfigs = {},
+  roomOrder = [],
+  onReorderRooms,
   onOpenAddRoomModal,
   onOpenRoomSettings,
 }) => {
   const scrollContainerRef = useRef<HTMLDivElement>(null);
+  const [draggedPill, setDraggedPill] = React.useState<string | null>(null);
+  const [dragOverPill, setDragOverPill] = React.useState<string | null>(null);
 
-  // Aggregate all unique room names from default, custom, and devices excluding deleted rooms
+  // Aggregate and sort all unique room names from default, custom, and devices excluding deleted rooms
   const allRooms = React.useMemo(() => {
-    const base = ['Tutti', 'Salotto', 'Cucina', 'Camera da Letto', 'Bagno', 'Studio', 'Ingresso', 'Giardino', 'Garage'];
+    const base = ['Salotto', 'Cucina', 'Camera da Letto', 'Bagno', 'Studio', 'Ingresso', 'Giardino', 'Garage'];
     const fromDevices = devices.map((d) => d.room).filter(Boolean);
     const combined = Array.from(new Set([...base, ...customRooms, ...fromDevices]));
-    return combined.filter((r) => r === 'Tutti' || !deletedRooms.includes(r));
-  }, [devices, customRooms, deletedRooms]);
+    const filtered = combined.filter((r) => !deletedRooms.includes(r));
+
+    if (roomOrder && roomOrder.length > 0) {
+      filtered.sort((a, b) => {
+        const idxA = roomOrder.indexOf(a);
+        const idxB = roomOrder.indexOf(b);
+        if (idxA === -1 && idxB === -1) return 0;
+        if (idxA === -1) return 1;
+        if (idxB === -1) return -1;
+        return idxA - idxB;
+      });
+    }
+
+    return ['Tutti', ...filtered];
+  }, [devices, customRooms, deletedRooms, roomOrder]);
 
   // Automatically center selected room in the scroll view
   React.useEffect(() => {
@@ -103,6 +122,57 @@ export const RoomFilter: React.FC<RoomFilterProps> = ({
       }
     }
   }, [selectedRoom]);
+
+  const handlePillDragStart = (e: React.DragEvent, roomName: string) => {
+    if (roomName === 'Tutti') return;
+    setDraggedPill(roomName);
+    e.dataTransfer.effectAllowed = 'move';
+    e.dataTransfer.setData('text/plain', roomName);
+  };
+
+  const handlePillDragOver = (e: React.DragEvent, roomName: string) => {
+    if (roomName === 'Tutti') return;
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+    if (dragOverPill !== roomName) {
+      setDragOverPill(roomName);
+    }
+  };
+
+  const handlePillDragLeave = (e: React.DragEvent, roomName: string) => {
+    if (dragOverPill === roomName) {
+      setDragOverPill(null);
+    }
+  };
+
+  const handlePillDrop = (e: React.DragEvent, targetRoom: string) => {
+    if (targetRoom === 'Tutti') {
+      setDraggedPill(null);
+      setDragOverPill(null);
+      return;
+    }
+    e.preventDefault();
+    const sourceRoom = draggedPill || e.dataTransfer.getData('text/plain');
+    if (!sourceRoom || sourceRoom === targetRoom || sourceRoom === 'Tutti') {
+      setDraggedPill(null);
+      setDragOverPill(null);
+      return;
+    }
+
+    const nonTuttiList = allRooms.filter((r) => r !== 'Tutti');
+    const sourceIdx = nonTuttiList.indexOf(sourceRoom);
+    const targetIdx = nonTuttiList.indexOf(targetRoom);
+
+    if (sourceIdx !== -1 && targetIdx !== -1) {
+      const updated = [...nonTuttiList];
+      const [moved] = updated.splice(sourceIdx, 1);
+      updated.splice(targetIdx, 0, moved);
+      onReorderRooms?.(updated);
+    }
+
+    setDraggedPill(null);
+    setDragOverPill(null);
+  };
 
   const getRoomCount = (roomName: string) => {
     if (roomName === 'Tutti') return devices.length;
@@ -160,11 +230,21 @@ export const RoomFilter: React.FC<RoomFilterProps> = ({
           const isSelected = selectedRoom === roomName;
           const hasCustomWallpaper = Boolean(roomConfigs[roomName]?.wallpaperUrl);
 
+          const isDragging = draggedPill === roomName;
+          const isDragOver = dragOverPill === roomName;
+
           return (
             <div
               key={roomName}
               data-room={roomName}
-              className="relative flex items-center group/pill flex-shrink-0"
+              draggable={roomName !== 'Tutti'}
+              onDragStart={(e) => handlePillDragStart(e, roomName)}
+              onDragOver={(e) => handlePillDragOver(e, roomName)}
+              onDragLeave={(e) => handlePillDragLeave(e, roomName)}
+              onDrop={(e) => handlePillDrop(e, roomName)}
+              className={`relative flex items-center group/pill flex-shrink-0 transition-all ${
+                isDragging ? 'opacity-40 scale-95' : ''
+              } ${isDragOver ? 'ring-2 ring-amber-400 scale-105 rounded-full z-10' : ''}`}
             >
               <button
                 type="button"

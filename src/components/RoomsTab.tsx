@@ -33,6 +33,11 @@ import {
   Flame,
   Waves,
   Sun,
+  Trash2,
+  ArrowLeft,
+  ArrowRight,
+  GripVertical,
+  AlertTriangle,
   Image as ImageIcon
 } from 'lucide-react';
 
@@ -41,6 +46,9 @@ interface RoomsTabProps {
   customRooms?: string[];
   deletedRooms?: string[];
   roomConfigs?: Record<string, RoomConfig>;
+  roomOrder?: string[];
+  onReorderRooms?: (newOrder: string[]) => void;
+  onDeleteRoom?: (roomName: string) => void;
   onTogglePower: (device: SmartDevice) => void;
   onUpdateState: (deviceId: string, newState: Partial<SmartDevice['state']>) => void;
   onClickDetail: (device: SmartDevice) => void;
@@ -91,6 +99,9 @@ export const RoomsTab: React.FC<RoomsTabProps> = ({
   customRooms = [],
   deletedRooms = [],
   roomConfigs = {},
+  roomOrder = [],
+  onReorderRooms,
+  onDeleteRoom,
   onTogglePower,
   onUpdateState,
   onClickDetail,
@@ -101,16 +112,32 @@ export const RoomsTab: React.FC<RoomsTabProps> = ({
   onTurnOnRoom,
   onToggleChannel,
 }) => {
-  // Aggregate all unique room names (excluding 'Tutti' and deleted rooms)
+  // Aggregate and sort all unique room names (excluding deleted rooms)
   const allRooms = React.useMemo(() => {
     const base = ['Salotto', 'Cucina', 'Camera da Letto', 'Bagno', 'Studio', 'Ingresso', 'Giardino', 'Garage'];
     const fromDevices = devices.map((d) => d.room).filter(Boolean);
     const combined = Array.from(new Set([...base, ...customRooms, ...fromDevices]));
-    return combined.filter((r) => !deletedRooms.includes(r));
-  }, [devices, customRooms, deletedRooms]);
+    const filtered = combined.filter((r) => !deletedRooms.includes(r));
+
+    if (!roomOrder || roomOrder.length === 0) return filtered;
+
+    return filtered.sort((a, b) => {
+      const idxA = roomOrder.indexOf(a);
+      const idxB = roomOrder.indexOf(b);
+      if (idxA === -1 && idxB === -1) return 0;
+      if (idxA === -1) return 1;
+      if (idxB === -1) return -1;
+      return idxA - idxB;
+    });
+  }, [devices, customRooms, deletedRooms, roomOrder]);
 
   const [activeRoomView, setActiveRoomView] = useState<string | 'all'>('all');
   const [swipeDirection, setSwipeDirection] = useState<'left' | 'right'>('left');
+  const [roomToDeleteConfirm, setRoomToDeleteConfirm] = useState<string | null>(null);
+
+  // Drag and Drop state for Room cards
+  const [draggedRoom, setDraggedRoom] = useState<string | null>(null);
+  const [dragOverRoom, setDragOverRoom] = useState<string | null>(null);
 
   // Touch Swipe for Rooms Tab
   const touchStartXRef = useRef<number | null>(null);
@@ -158,6 +185,71 @@ export const RoomsTab: React.FC<RoomsTabProps> = ({
 
     touchStartXRef.current = null;
     touchStartYRef.current = null;
+  };
+
+  const handleMoveRoom = (roomName: string, direction: 'left' | 'right') => {
+    const currentList = [...allRooms];
+    const index = currentList.indexOf(roomName);
+    if (index === -1) return;
+    const targetIndex = direction === 'left' ? index - 1 : index + 1;
+    if (targetIndex < 0 || targetIndex >= currentList.length) return;
+
+    const [item] = currentList.splice(index, 1);
+    currentList.splice(targetIndex, 0, item);
+    onReorderRooms?.(currentList);
+  };
+
+  const handleRoomDragStart = (e: React.DragEvent, roomName: string) => {
+    setDraggedRoom(roomName);
+    e.dataTransfer.effectAllowed = 'move';
+    e.dataTransfer.setData('text/plain', roomName);
+  };
+
+  const handleRoomDragOver = (e: React.DragEvent, roomName: string) => {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+    if (dragOverRoom !== roomName) {
+      setDragOverRoom(roomName);
+    }
+  };
+
+  const handleRoomDragLeave = (e: React.DragEvent, roomName: string) => {
+    if (dragOverRoom === roomName) {
+      setDragOverRoom(null);
+    }
+  };
+
+  const handleRoomDrop = (e: React.DragEvent, targetRoom: string) => {
+    e.preventDefault();
+    const sourceRoom = draggedRoom || e.dataTransfer.getData('text/plain');
+    if (!sourceRoom || sourceRoom === targetRoom) {
+      setDraggedRoom(null);
+      setDragOverRoom(null);
+      return;
+    }
+
+    const currentList = [...allRooms];
+    const sourceIdx = currentList.indexOf(sourceRoom);
+    const targetIdx = currentList.indexOf(targetRoom);
+
+    if (sourceIdx !== -1 && targetIdx !== -1) {
+      const [moved] = currentList.splice(sourceIdx, 1);
+      currentList.splice(targetIdx, 0, moved);
+      onReorderRooms?.(currentList);
+    }
+
+    setDraggedRoom(null);
+    setDragOverRoom(null);
+  };
+
+  const handleConfirmDeleteRoom = () => {
+    if (roomToDeleteConfirm && onDeleteRoom) {
+      onDeleteRoom(roomToDeleteConfirm);
+      if (activeRoomView === roomToDeleteConfirm) {
+        setActiveRoomView('all');
+      }
+      setRoomToDeleteConfirm(null);
+    }
   };
 
   const getRoomIcon = (name: string) => {
@@ -213,6 +305,49 @@ export const RoomsTab: React.FC<RoomsTabProps> = ({
       onTouchEnd={handleTouchEnd}
       className="space-y-8 text-slate-100 touch-pan-y"
     >
+      {/* Delete Confirmation Modal for Room Deletion */}
+      {roomToDeleteConfirm && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md animate-in fade-in duration-200">
+          <div className="bg-[#141923] border border-rose-500/40 rounded-3xl max-w-md w-full p-6 shadow-2xl space-y-4">
+            <div className="flex items-center gap-3 text-rose-400">
+              <div className="p-3 bg-rose-500/20 rounded-2xl">
+                <AlertTriangle className="w-6 h-6" />
+              </div>
+              <div>
+                <h3 className="text-lg font-bold text-white">Elimina Stanza</h3>
+                <p className="text-xs text-rose-200/80">Stanza: "{roomToDeleteConfirm}"</p>
+              </div>
+            </div>
+
+            <p className="text-xs text-slate-300 leading-relaxed">
+              Sei sicuro di voler eliminare la stanza <strong className="text-white">"{roomToDeleteConfirm}"</strong>?
+              <br />
+              <span className="text-amber-300 block mt-2 font-medium">
+                I {devices.filter(d => d.room === roomToDeleteConfirm).length} dispositivi assegnati a questa stanza non verranno cancellati, ma spostati automaticamente su "Non assegnati" (Senza Stanza).
+              </span>
+            </p>
+
+            <div className="flex items-center justify-end gap-3 pt-2">
+              <button
+                type="button"
+                onClick={() => setRoomToDeleteConfirm(null)}
+                className="px-4 py-2 rounded-xl bg-white/10 hover:bg-white/15 text-xs font-semibold text-white transition cursor-pointer"
+              >
+                Annulla
+              </button>
+              <button
+                type="button"
+                onClick={handleConfirmDeleteRoom}
+                className="px-5 py-2 rounded-xl bg-rose-600 hover:bg-rose-500 text-xs font-bold text-white shadow-lg transition flex items-center gap-1.5 cursor-pointer"
+              >
+                <Trash2 className="w-4 h-4" />
+                <span>Conferma ed Elimina</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Apple Home Rooms Header Bar */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-black/30 backdrop-blur-xl border border-white/10 p-4 rounded-[26px]">
         <div className="flex items-center gap-3">
@@ -222,7 +357,7 @@ export const RoomsTab: React.FC<RoomsTabProps> = ({
           <div>
             <h2 className="text-xl font-black text-white tracking-tight">Stanze di Casa</h2>
             <p className="text-xs text-slate-400">
-              Visualizza e controlla ogni ambiente come in Apple Home
+              Personalizza, riordina con Drag & Drop o frecce, ed elimina le stanze
             </p>
           </div>
         </div>
@@ -283,29 +418,73 @@ export const RoomsTab: React.FC<RoomsTabProps> = ({
         </div>
       </div>
 
-      {/* Room Quick Grid Selector if 'all' is selected */}
+      {/* Room Quick Grid Selector / Reorder with Drag & Drop */}
       <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-8 gap-2.5">
-        {allRooms.map((roomName) => {
+        {allRooms.map((roomName, idx) => {
           const stats = getRoomStats(roomName);
           const isSelected = activeRoomView === roomName;
+          const isDragging = draggedRoom === roomName;
+          const isDragOver = dragOverRoom === roomName;
+
           return (
-            <button
+            <div
               key={roomName}
-              onClick={() => setActiveRoomView(isSelected ? 'all' : roomName)}
-              className={`p-3 rounded-2xl flex flex-col items-center justify-center text-center gap-1.5 border transition-all cursor-pointer ${
-                isSelected
-                  ? 'bg-amber-400 text-slate-950 border-amber-300 font-bold shadow-lg shadow-amber-400/20 scale-105'
-                  : 'bg-black/25 hover:bg-black/40 border-white/10 text-slate-300 hover:text-white'
-              }`}
+              draggable={true}
+              onDragStart={(e) => handleRoomDragStart(e, roomName)}
+              onDragOver={(e) => handleRoomDragOver(e, roomName)}
+              onDragLeave={(e) => handleRoomDragLeave(e, roomName)}
+              onDrop={(e) => handleRoomDrop(e, roomName)}
+              className={`relative group/pill transition-all duration-200 rounded-2xl ${
+                isDragging ? 'opacity-40 scale-95 border-2 border-dashed border-amber-400' : ''
+              } ${isDragOver ? 'ring-2 ring-amber-400 scale-105 shadow-xl z-20' : ''}`}
             >
-              <div className={isSelected ? 'text-slate-950' : 'text-amber-400'}>
-                {getRoomIcon(roomName)}
+              <button
+                onClick={() => setActiveRoomView(isSelected ? 'all' : roomName)}
+                className={`w-full p-3 rounded-2xl flex flex-col items-center justify-center text-center gap-1.5 border transition-all cursor-pointer ${
+                  isSelected
+                    ? 'bg-amber-400 text-slate-950 border-amber-300 font-bold shadow-lg shadow-amber-400/20 scale-105'
+                    : 'bg-black/25 hover:bg-black/40 border-white/10 text-slate-300 hover:text-white'
+                }`}
+              >
+                <div className={isSelected ? 'text-slate-950' : 'text-amber-400'}>
+                  {getRoomIcon(roomName)}
+                </div>
+                <span className="text-xs font-bold truncate max-w-full">{roomName}</span>
+                <span className={`text-[10px] font-mono ${isSelected ? 'text-slate-900 font-bold' : 'text-slate-400'}`}>
+                  {stats.activeCount}/{stats.totalCount} attivi
+                </span>
+              </button>
+
+              {/* Quick Shift Arrows on Room Card Selector */}
+              <div className="absolute top-1 right-1 opacity-0 group-hover/pill:opacity-100 transition-opacity flex items-center gap-0.5 bg-black/80 rounded-lg p-0.5 border border-white/10 z-10">
+                {idx > 0 && (
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleMoveRoom(roomName, 'left');
+                    }}
+                    className="p-1 text-slate-300 hover:text-amber-400 transition"
+                    title="Sposta prima"
+                  >
+                    <ChevronLeft className="w-3 h-3" />
+                  </button>
+                )}
+                {idx < allRooms.length - 1 && (
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleMoveRoom(roomName, 'right');
+                    }}
+                    className="p-1 text-slate-300 hover:text-amber-400 transition"
+                    title="Sposta dopo"
+                  >
+                    <ChevronRight className="w-3 h-3" />
+                  </button>
+                )}
               </div>
-              <span className="text-xs font-bold truncate max-w-full">{roomName}</span>
-              <span className={`text-[10px] font-mono ${isSelected ? 'text-slate-900 font-bold' : 'text-slate-400'}`}>
-                {stats.activeCount}/{stats.totalCount} attivi
-              </span>
-            </button>
+            </div>
           );
         })}
       </div>
@@ -324,11 +503,21 @@ export const RoomsTab: React.FC<RoomsTabProps> = ({
             const stats = getRoomStats(roomName);
             const roomConfig = roomConfigs[roomName];
             const wallpaper = roomConfig?.wallpaperUrl;
+            const currentRoomIdx = allRooms.indexOf(roomName);
+            const isDragging = draggedRoom === roomName;
+            const isDragOver = dragOverRoom === roomName;
 
             return (
               <div
                 key={roomName}
-                className="bg-black/30 backdrop-blur-xl border border-white/15 rounded-[28px] p-5 sm:p-6 space-y-4 shadow-xl relative overflow-hidden group/card"
+                draggable={true}
+                onDragStart={(e) => handleRoomDragStart(e, roomName)}
+                onDragOver={(e) => handleRoomDragOver(e, roomName)}
+                onDragLeave={(e) => handleRoomDragLeave(e, roomName)}
+                onDrop={(e) => handleRoomDrop(e, roomName)}
+                className={`bg-black/30 backdrop-blur-xl border border-white/15 rounded-[28px] p-5 sm:p-6 space-y-4 shadow-xl relative overflow-hidden group/card transition-all duration-200 ${
+                  isDragging ? 'opacity-40 scale-[0.98] border-2 border-dashed border-amber-400' : ''
+                } ${isDragOver ? 'ring-2 ring-amber-400 scale-[1.01] shadow-2xl z-20' : ''}`}
               >
                 {/* Optional Room Wallpaper Background Layer */}
                 {wallpaper && (
@@ -344,11 +533,19 @@ export const RoomsTab: React.FC<RoomsTabProps> = ({
                 {/* Room Card Top Header */}
                 <div className="relative z-10 flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-white/10">
                   <div className="flex items-center gap-3">
+                    {/* Drag Handle for Room Card */}
+                    <div 
+                      className="p-1.5 rounded-xl bg-white/5 hover:bg-white/15 text-slate-400 hover:text-amber-400 cursor-grab active:cursor-grabbing transition"
+                      title="Trascina per riordinare la stanza"
+                    >
+                      <GripVertical className="w-4 h-4" />
+                    </div>
+
                     <div className="p-2.5 rounded-2xl bg-amber-400/15 border border-amber-400/30 text-amber-400">
                       {getRoomIcon(roomName)}
                     </div>
                     <div>
-                      <div className="flex items-center gap-2">
+                      <div className="flex items-center gap-2 flex-wrap">
                         <h3 className="text-lg font-black text-white">{roomName}</h3>
                         <span className="text-[11px] font-mono bg-white/10 px-2.5 py-0.5 rounded-full text-slate-300 border border-white/10">
                           {stats.totalCount} Dispositivi
@@ -382,18 +579,49 @@ export const RoomsTab: React.FC<RoomsTabProps> = ({
                     </div>
                   </div>
 
-                  {/* Quick Batch Actions & Customization for Room */}
-                  <div className="flex items-center gap-2 self-end sm:self-auto flex-wrap">
+                  {/* Quick Batch Actions, Reordering & Deletion for Room */}
+                  <div className="flex items-center gap-1.5 self-end sm:self-auto flex-wrap">
+                    {/* Move Room Left / Right Arrows */}
+                    <div className="flex items-center bg-black/40 rounded-full border border-white/15 p-0.5 mr-1">
+                      <button
+                        type="button"
+                        onClick={() => handleMoveRoom(roomName, 'left')}
+                        disabled={currentRoomIdx === 0}
+                        className={`p-1.5 rounded-full transition cursor-pointer ${
+                          currentRoomIdx === 0
+                            ? 'text-slate-600 cursor-not-allowed'
+                            : 'text-slate-300 hover:text-white hover:bg-white/10'
+                        }`}
+                        title="Sposta stanza prima (a sinistra / su)"
+                      >
+                        <ArrowLeft className="w-3.5 h-3.5" />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleMoveRoom(roomName, 'right')}
+                        disabled={currentRoomIdx === allRooms.length - 1}
+                        className={`p-1.5 rounded-full transition cursor-pointer ${
+                          currentRoomIdx === allRooms.length - 1
+                            ? 'text-slate-600 cursor-not-allowed'
+                            : 'text-slate-300 hover:text-white hover:bg-white/10'
+                        }`}
+                        title="Sposta stanza dopo (a destra / giù)"
+                      >
+                        <ArrowRight className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+
                     {onOpenRoomSettings && (
                       <button
                         onClick={() => onOpenRoomSettings(roomName)}
                         className="px-3 py-1.5 rounded-full bg-white/10 hover:bg-white/20 text-slate-200 hover:text-amber-300 text-xs font-semibold border border-white/15 transition cursor-pointer flex items-center gap-1.5"
-                        title="Personalizza sfondo, icona o elimina questa stanza"
+                        title="Personalizza sfondo, icona o dispositivi di questa stanza"
                       >
                         <Sliders className="w-3.5 h-3.5 text-amber-400" />
                         <span>Personalizza</span>
                       </button>
                     )}
+
                     {onTurnOnRoom && (
                       <button
                         onClick={() => onTurnOnRoom(roomName)}
@@ -402,6 +630,7 @@ export const RoomsTab: React.FC<RoomsTabProps> = ({
                         Accendi Tutto
                       </button>
                     )}
+
                     {onTurnOffRoom && (
                       <button
                         onClick={() => onTurnOffRoom(roomName)}
@@ -410,6 +639,16 @@ export const RoomsTab: React.FC<RoomsTabProps> = ({
                         Spegni Tutto
                       </button>
                     )}
+
+                    {/* Direct Room Delete Button */}
+                    <button
+                      type="button"
+                      onClick={() => setRoomToDeleteConfirm(roomName)}
+                      className="p-2 rounded-full bg-rose-600/15 hover:bg-rose-600/30 text-rose-300 hover:text-rose-200 border border-rose-500/30 transition cursor-pointer"
+                      title="Elimina questa stanza"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </button>
                   </div>
                 </div>
 
