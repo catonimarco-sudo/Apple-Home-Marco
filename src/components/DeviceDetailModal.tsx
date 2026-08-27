@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { SmartDevice, DeviceSchedule } from '../types';
+import { SmartDevice, DeviceSchedule, isWideDeviceCard } from '../types';
 import { DeviceScheduleSection } from './DeviceScheduleSection';
 import { getTuyaConfig, saveTuyaConfig, TuyaCameraConfig, requestTuyaWebRTCStream, startWebRTCStream, cleanupVideoMedia } from '../tuyaConfig';
 import { 
@@ -40,7 +40,10 @@ import {
   Minus,
   Flame,
   Sun,
-  Droplets
+  Droplets,
+  Square,
+  RectangleHorizontal,
+  LayoutGrid
 } from 'lucide-react';
 
 // Helper function to compress and resize custom uploaded icons to 300x300 max
@@ -108,6 +111,7 @@ export const DeviceDetailModal: React.FC<DeviceDetailModalProps> = ({
   const [timerRunning, setTimerRunning] = useState<boolean>(false);
   
   // Editable Fields
+  const currentEditingDeviceIdRef = useRef<string | null>(null);
   const [editName, setEditName] = useState<string>(device?.name || '');
   const [editRoom, setEditRoom] = useState<string>(device?.room || '');
 
@@ -127,6 +131,11 @@ export const DeviceDetailModal: React.FC<DeviceDetailModalProps> = ({
   const [editDpCodeCustom, setEditDpCodeCustom] = useState<string>(device?.dpCode || '');
   const [editCustomIcon, setEditCustomIcon] = useState<string>(device?.customIcon || '');
   const [editCustomImageUrl, setEditCustomImageUrl] = useState<string>(device?.customImageUrl || '');
+  const [editAlwaysOnline, setEditAlwaysOnline] = useState<boolean>(device?.alwaysOnline ?? device?.forceOnline ?? false);
+  const [editCardSpan, setEditCardSpan] = useState<1 | 2>(() => {
+    if (device?.cardSpan === 1 || device?.cardSpan === 2) return device.cardSpan;
+    return isWideDeviceCard(device) ? 2 : 1;
+  });
   const [editCurrentTemp, setEditCurrentTemp] = useState<string>(() => {
     const cur = device?.state.thermostat?.currentTemp;
     if (cur !== undefined && cur !== null) {
@@ -159,44 +168,44 @@ export const DeviceDetailModal: React.FC<DeviceDetailModalProps> = ({
 
   useEffect(() => {
     if (device) {
-      setEditName(device.name);
-      setEditRoom(device.room);
-      setEditCategory(device.category);
-      setEditVendor(device.vendor);
-      setEditTuyaId(device.tuyaDeviceId || '');
-      setEditIp(device.ipAddress || '');
-      setEditChannel(device.channel || device.dpCode || 'switch_1');
-      setEditDpCodeCustom(device.dpCode || '');
-      setEditCustomIcon(device.customIcon || '');
-      setEditCustomImageUrl(device.customImageUrl || '');
-      const cur = device.state.thermostat?.currentTemp;
-      if (cur !== undefined && cur !== null) {
-        setEditCurrentTemp((cur > 100 ? cur / 10 : cur).toString());
-      } else {
-        setEditCurrentTemp('31.0');
-      }
-      setShowDeleteConfirm(false);
+      const currentId = device.id || device.tuyaDeviceId;
+      // Only reset user-editable fields when opening a DIFFERENT device, preventing background polling from wiping active form edits
+      if (currentEditingDeviceIdRef.current !== currentId) {
+        currentEditingDeviceIdRef.current = currentId;
+        setEditName(device.name);
+        setEditRoom(device.room);
+        setEditCategory(device.category);
+        setEditVendor(device.vendor || '');
+        setEditTuyaId(device.tuyaDeviceId || '');
+        setEditIp(device.ipAddress || '');
+        setEditChannel(device.channel || device.dpCode || 'switch_1');
+        setEditDpCodeCustom(device.dpCode || '');
+        setEditCustomIcon(device.customIcon || '');
+        setEditCustomImageUrl(device.customImageUrl || '');
+        setEditAlwaysOnline(device.alwaysOnline ?? device.forceOnline ?? false);
+        setEditCardSpan(device.cardSpan === 1 || device.cardSpan === 2 ? device.cardSpan : (isWideDeviceCard(device) ? 2 : 1));
+        const cur = device.state.thermostat?.currentTemp;
+        if (cur !== undefined && cur !== null) {
+          setEditCurrentTemp((cur > 100 ? cur / 10 : cur).toString());
+        } else {
+          setEditCurrentTemp('31.0');
+        }
+        setShowDeleteConfirm(false);
 
-      const devId = device.tuyaDeviceId || device.id;
-      const cfg = getTuyaConfig(devId);
-      if (!cfg.deviceId && devId) {
-        cfg.deviceId = devId;
-      }
-      setTuyaWebRTCConfig(cfg);
-      if (cfg.directStreamUrl) {
-        setActiveStreamUrl(cfg.directStreamUrl);
-      } else if (cfg.streamUrl) {
-        setActiveStreamUrl(cfg.streamUrl);
-      }
-
-      // Automatically allocate stream from Tuya Cloud if camera device is opened
-      if (device.category === 'camera') {
-        setTimeout(() => {
-          handleFetchStreamFromBackend(cfg);
-        }, 150);
+        const devId = device.tuyaDeviceId || device.id;
+        const cfg = getTuyaConfig(devId);
+        if (!cfg.deviceId && devId) {
+          cfg.deviceId = devId;
+        }
+        setTuyaWebRTCConfig(cfg);
+        if (cfg.directStreamUrl) {
+          setActiveStreamUrl(cfg.directStreamUrl);
+        } else if (cfg.streamUrl) {
+          setActiveStreamUrl(cfg.streamUrl);
+        }
       }
     }
-  }, [device]);
+  }, [device?.id, device?.tuyaDeviceId]);
 
   if (!device) return null;
 
@@ -254,7 +263,49 @@ export const DeviceDetailModal: React.FC<DeviceDetailModalProps> = ({
     const finalDpCode = customDpTrimmed || finalChannel;
 
     let updatedState = { ...device.state };
-    if (editCategory === 'thermostat' || device.category === 'thermostat') {
+    const currentIsOn = Boolean(
+      device.state.light?.power ||
+      device.state.switch?.power ||
+      device.state.plug?.power ||
+      device.state.thermostat?.power ||
+      (device.state as any)?.power ||
+      false
+    );
+
+    if (editCategory === 'light') {
+      updatedState = {
+        ...updatedState,
+        light: {
+          brightness: 100,
+          color: '#ffffff',
+          colorTemp: 4000,
+          mode: 'white',
+          ...(device.state.light || {}),
+          power: currentIsOn,
+        },
+      };
+    } else if (editCategory === 'switch') {
+      updatedState = {
+        ...updatedState,
+        switch: {
+          gangs: [currentIsOn],
+          ...(device.state.switch || {}),
+          power: currentIsOn,
+        },
+      };
+    } else if (editCategory === 'plug') {
+      updatedState = {
+        ...updatedState,
+        plug: {
+          watts: currentIsOn ? 120 : 0,
+          voltage: 228,
+          current: currentIsOn ? 0.5 : 0,
+          totalKwh: 14.2,
+          ...(device.state.plug || {}),
+          power: currentIsOn,
+        },
+      };
+    } else if (editCategory === 'thermostat' || device.category === 'thermostat') {
       const parsedCurrentTemp = parseFloat(editCurrentTemp) || 31.0;
       updatedState = {
         ...updatedState,
@@ -265,20 +316,36 @@ export const DeviceDetailModal: React.FC<DeviceDetailModalProps> = ({
       };
     }
 
+    let finalCustomIcon = editCustomIcon;
+    if (!finalCustomIcon) {
+      if (editCategory === 'light') finalCustomIcon = 'lightbulb';
+      else if (editCategory === 'switch') finalCustomIcon = 'power';
+      else if (editCategory === 'plug') finalCustomIcon = 'plug';
+      else if (editCategory === 'gate') finalCustomIcon = 'gate';
+      else if (editCategory === 'thermostat') finalCustomIcon = 'thermostat';
+    }
+
     const updated: SmartDevice = {
       ...device,
-      name: editName,
-      room: editRoom,
+      name: editName.trim() || device.name,
+      room: editRoom.trim() || device.room,
       category: editCategory,
-      vendor: editVendor,
-      tuyaDeviceId: editTuyaId,
-      ipAddress: editIp,
-      customIcon: editCustomIcon || '',
-      customImageUrl: editCustomImageUrl || '',
+      vendor: editVendor.trim() || device.vendor,
+      tuyaDeviceId: editTuyaId.trim() || device.tuyaDeviceId,
+      ipAddress: editIp.trim() || device.ipAddress,
+      customIcon: finalCustomIcon,
+      customImageUrl: editCustomImageUrl.trim() || '',
       channel: finalChannel,
       dpCode: finalDpCode,
+      cardSpan: editCardSpan,
+      alwaysOnline: editAlwaysOnline,
+      forceOnline: editAlwaysOnline,
+      isOnline: editAlwaysOnline ? true : device.isOnline,
+      lastCommandAt: Date.now(),
       state: updatedState,
     };
+
+    currentEditingDeviceIdRef.current = updated.id || updated.tuyaDeviceId || null;
     onUpdateDevice(updated);
     setIsSaved(true);
     setTimeout(() => setIsSaved(false), 2000);
@@ -333,12 +400,44 @@ export const DeviceDetailModal: React.FC<DeviceDetailModalProps> = ({
             </div>
           </div>
 
-          <button
-            onClick={onClose}
-            className="p-2 text-slate-400 hover:text-white bg-white/5 hover:bg-white/10 rounded-full transition cursor-pointer"
-          >
-            <X className="w-5 h-5" />
-          </button>
+          <div className="flex items-center gap-2">
+            {/* Quick Size Toggle Button */}
+            <button
+              type="button"
+              onClick={() => {
+                const currentIsWide = isWideDeviceCard(device);
+                const nextSpan: 1 | 2 = currentIsWide ? 1 : 2;
+                setEditCardSpan(nextSpan);
+                onUpdateDevice({
+                  ...device,
+                  cardSpan: nextSpan,
+                });
+              }}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold bg-white/5 hover:bg-white/15 text-slate-300 hover:text-amber-300 border border-white/10 transition cursor-pointer"
+              title="Cambia dimensione scheda nella dashboard (1 colonna standard / 2 colonne intera riga)"
+            >
+              {isWideDeviceCard(device) ? (
+                <>
+                  <RectangleHorizontal className="w-4 h-4 text-amber-400" />
+                  <span className="hidden sm:inline text-[11px]">2 Col (Largo) → Clicca per 1 Col</span>
+                  <span className="sm:hidden text-[11px]">2 Col</span>
+                </>
+              ) : (
+                <>
+                  <Square className="w-4 h-4 text-slate-300" />
+                  <span className="hidden sm:inline text-[11px]">1 Col (Standard) → Clicca per 2 Col</span>
+                  <span className="sm:hidden text-[11px]">1 Col</span>
+                </>
+              )}
+            </button>
+
+            <button
+              onClick={onClose}
+              className="p-2 text-slate-400 hover:text-white bg-white/5 hover:bg-white/10 rounded-full transition cursor-pointer"
+            >
+              <X className="w-5 h-5" />
+            </button>
+          </div>
         </div>
 
         {/* Modal Tabs */}
@@ -1113,6 +1212,106 @@ export const DeviceDetailModal: React.FC<DeviceDetailModalProps> = ({
                   </div>
                 </div>
               )}
+
+              {/* Multi-Gang Switch / Relè a 2, 3 o 4 Pulsanti Indipendenti */}
+              {!device.name.toLowerCase().includes('irrigaz') &&
+                !device.name.toLowerCase().includes('solenoide') &&
+                device.customIcon !== 'droplet' &&
+                device.customIcon !== 'irrigation' &&
+                (device.category === 'switch' ||
+                 device.category === 'light' ||
+                 device.category === 'plug' ||
+                 Boolean(device.dpCode && device.dpCode.startsWith('switch_')) ||
+                 Boolean(device.channel && device.channel.startsWith('switch_')) ||
+                 Boolean(device.state.switch?.gangs && device.state.switch.gangs.length > 1) ||
+                 Boolean(device.state.switch?.channelStates)) && (
+                <div className="bg-[#0A0A0B] p-5 rounded-2xl border border-white/5 space-y-4">
+                  <div className="flex items-center justify-between border-b border-white/10 pb-3">
+                    <div className="flex items-center gap-2.5">
+                      <div className="w-10 h-10 rounded-xl bg-amber-500/20 border border-amber-500/30 flex items-center justify-center text-amber-400">
+                        <Power className="w-5 h-5" />
+                      </div>
+                      <div>
+                        <h4 className="text-sm font-bold text-white">Controllo Pulsanti Interruttore Multiplo (1, 2, 3)</h4>
+                        <p className="text-xs text-slate-400">Testa e controlla singolarmente ciascun pulsante fisico del relè Tuya</p>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                    {[
+                      {
+                        dpCode: 'switch_1',
+                        label: 'Pulsante 1',
+                        chNum: 1,
+                        active: Boolean(device.state.switch?.channelStates?.switch_1 ?? device.state.switch?.gangs?.[0]),
+                      },
+                      {
+                        dpCode: 'switch_2',
+                        label: 'Pulsante 2',
+                        chNum: 2,
+                        active: Boolean(device.state.switch?.channelStates?.switch_2 ?? device.state.switch?.gangs?.[1]),
+                      },
+                      {
+                        dpCode: 'switch_3',
+                        label: 'Pulsante 3 (Cucina)',
+                        chNum: 3,
+                        active: Boolean(device.state.switch?.channelStates?.switch_3 ?? device.state.switch?.gangs?.[2]),
+                      },
+                    ].map((btn) => {
+                      const isCurrentConfigured = (device.dpCode === btn.dpCode) || (device.channel === btn.dpCode);
+                      return (
+                        <div
+                          key={btn.dpCode}
+                          className={`p-4 rounded-xl border flex flex-col justify-between gap-3 transition-all ${
+                            btn.active
+                              ? 'bg-amber-500/15 border-amber-400/50 shadow-md shadow-amber-950/20'
+                              : 'bg-white/5 border-white/10 hover:border-white/20'
+                          }`}
+                        >
+                          <div className="space-y-1">
+                            <div className="flex items-center justify-between">
+                              <span className="text-[10px] font-mono font-bold bg-white/10 text-amber-300 px-1.5 py-0.5 rounded">
+                                {btn.dpCode}
+                              </span>
+                              {isCurrentConfigured && (
+                                <span className="text-[9px] font-extrabold bg-amber-400/20 text-amber-300 border border-amber-400/30 px-1.5 py-0.5 rounded-full">
+                                  ★ Attuale
+                                </span>
+                              )}
+                            </div>
+                            <p className="font-bold text-sm text-white">{btn.label}</p>
+                            <span
+                              className={`text-[10px] font-extrabold uppercase block ${
+                                btn.active ? 'text-amber-400' : 'text-slate-400'
+                              }`}
+                            >
+                              {btn.active ? '● ACCESO' : '○ SPENTO'}
+                            </span>
+                          </div>
+
+                          <button
+                            type="button"
+                            onClick={() => {
+                              if (onToggleChannel) {
+                                onToggleChannel(device, btn.dpCode, !btn.active);
+                              }
+                            }}
+                            className={`w-full py-2.5 rounded-xl flex items-center justify-center gap-2 font-bold text-xs transition-all cursor-pointer shadow-md ${
+                              btn.active
+                                ? 'bg-amber-400 text-slate-950 shadow-amber-400/30'
+                                : 'bg-white/10 text-slate-300 hover:text-white hover:bg-white/15'
+                            }`}
+                          >
+                            <Power className="w-4 h-4" />
+                            <span>{btn.active ? 'Spegni' : 'Accendi'}</span>
+                          </button>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
             </div>
           )}
 
@@ -1204,19 +1403,29 @@ export const DeviceDetailModal: React.FC<DeviceDetailModalProps> = ({
                   <label className="text-slate-300 font-bold block mb-1">Categoria Dispositivo</label>
                   <select
                     value={editCategory}
-                    onChange={(e) => setEditCategory(e.target.value as any)}
-                    className="w-full bg-[#121214] border border-white/10 px-3 py-2 rounded-xl text-white font-medium focus:border-emerald-500 focus:outline-none"
+                    onChange={(e) => {
+                      const newCat = e.target.value as SmartDevice['category'];
+                      setEditCategory(newCat);
+                      if (newCat === 'light') {
+                        setEditCustomIcon('lightbulb');
+                      } else if (newCat === 'switch') {
+                        setEditCustomIcon('power');
+                      } else if (newCat === 'plug') {
+                        setEditCustomIcon('plug');
+                      }
+                    }}
+                    className="w-full bg-[#121214] border border-white/10 px-3 py-2 rounded-xl text-white font-medium focus:border-emerald-500 focus:outline-none cursor-pointer"
                   >
-                    <option value="plug">Presa Smart (Plug)</option>
-                    <option value="light">Illuminazione (Light/RGB)</option>
-                    <option value="thermostat">Termostato (Thermostat)</option>
-                    <option value="camera">Telecamera (Camera IP)</option>
-                    <option value="lock">Serratura Smart (Lock)</option>
-                    <option value="sensor">Sensore (Sensor)</option>
-                    <option value="vacuum">Robot Aspirapolvere</option>
-                    <option value="curtains">Tenda / Tapparella</option>
-                    <option value="switch">Interruttore Relè</option>
-                    <option value="gate">Apricancello / Relè Impulsivo</option>
+                    <option value="light">💡 Interruttore Luce / Lampada (Light)</option>
+                    <option value="switch">⚡ Interruttore Relè / Pulsante Smart (Switch)</option>
+                    <option value="plug">🔌 Presa Smart (Plug / Socket)</option>
+                    <option value="thermostat">🌡️ Termostato (Thermostat)</option>
+                    <option value="camera">📷 Telecamera (Camera IP)</option>
+                    <option value="lock">🔒 Serratura Smart (Lock)</option>
+                    <option value="sensor">🛡️ Sensore (Sensor)</option>
+                    <option value="vacuum">🧹 Robot Aspirapolvere</option>
+                    <option value="curtains">🪟 Tenda / Tapparella</option>
+                    <option value="gate">🔑 Apricancello / Relè Impulsivo</option>
                   </select>
                 </div>
 
@@ -1303,6 +1512,98 @@ export const DeviceDetailModal: React.FC<DeviceDetailModalProps> = ({
                   <p className="text-[11px] text-slate-400 mt-1">
                     Opzionale: sovrascrive il canale standard se compilato.
                   </p>
+                </div>
+
+                {/* Card Dimension / Button Size in Grid */}
+                <div className="bg-[#0A0A0B] p-4 rounded-2xl border border-white/5 space-y-3 col-span-2">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <h4 className="text-sm font-bold text-white flex items-center gap-2">
+                        <LayoutGrid className="w-4 h-4 text-amber-400" />
+                        <span>Dimensione Pulsante / Scheda nella Dashboard</span>
+                      </h4>
+                      <p className="text-xs text-slate-400 mt-0.5">
+                        Scegli tra la dimensione standard (compatta a 1 colonna, uguale a tutti gli altri pulsanti) o estesa (2 colonne a tutta riga).
+                      </p>
+                    </div>
+                    <span className="text-[10px] font-mono font-bold bg-amber-400/20 text-amber-300 border border-amber-400/30 px-2.5 py-1 rounded-full">
+                      {editCardSpan === 1 ? '1 Colonna (Standard)' : '2 Colonne (Larga)'}
+                    </span>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
+                    <button
+                      type="button"
+                      onClick={() => setEditCardSpan(1)}
+                      className={`p-3.5 rounded-xl border text-left flex items-start gap-3 transition-all cursor-pointer ${
+                        editCardSpan === 1
+                          ? 'bg-amber-400/15 border-amber-400 text-white shadow-md shadow-amber-950/20 ring-1 ring-amber-400/50'
+                          : 'bg-white/5 border-white/10 text-slate-400 hover:text-slate-200 hover:bg-white/10'
+                      }`}
+                    >
+                      <div className={`p-2 rounded-lg shrink-0 ${editCardSpan === 1 ? 'bg-amber-400 text-slate-950 font-bold' : 'bg-white/10 text-slate-400'}`}>
+                        <Square className="w-5 h-5" />
+                      </div>
+                      <div className="space-y-0.5">
+                        <div className="flex items-center gap-1.5 font-bold text-xs text-white">
+                          <span>Standard (1 Colonna)</span>
+                          {editCardSpan === 1 && <span className="text-[10px] text-amber-400 font-black">✓ Selezionato</span>}
+                        </div>
+                        <p className="text-[11px] text-slate-400 leading-tight">
+                          Pulsante compatto, uniforme con tutti gli altri pulsanti (luci, cancelli, prese, ecc.).
+                        </p>
+                      </div>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => setEditCardSpan(2)}
+                      className={`p-3.5 rounded-xl border text-left flex items-start gap-3 transition-all cursor-pointer ${
+                        editCardSpan === 2
+                          ? 'bg-amber-400/15 border-amber-400 text-white shadow-md shadow-amber-950/20 ring-1 ring-amber-400/50'
+                          : 'bg-white/5 border-white/10 text-slate-400 hover:text-slate-200 hover:bg-white/10'
+                      }`}
+                    >
+                      <div className={`p-2 rounded-lg shrink-0 ${editCardSpan === 2 ? 'bg-amber-400 text-slate-950 font-bold' : 'bg-white/10 text-slate-400'}`}>
+                        <RectangleHorizontal className="w-5 h-5" />
+                      </div>
+                      <div className="space-y-0.5">
+                        <div className="flex items-center gap-1.5 font-bold text-xs text-white">
+                          <span>Estesa (2 Colonne - Intera Riga)</span>
+                          {editCardSpan === 2 && <span className="text-[10px] text-amber-400 font-black">✓ Selezionato</span>}
+                        </div>
+                        <p className="text-[11px] text-slate-400 leading-tight">
+                          Scheda larga a tutta larghezza (ideale per telecamere o controlli estesi).
+                        </p>
+                      </div>
+                    </button>
+                  </div>
+                </div>
+
+                {/* Always Online / Bypass false offline state for sleepy Zigbee/Button modules */}
+                <div className="bg-[#0A0A0B] p-4 rounded-2xl border border-white/5 space-y-2 col-span-2">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <h4 className="text-sm font-bold text-white flex items-center gap-2">
+                        <span>Mantieni Sempre Online</span>
+                        <span className="text-[10px] bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 px-2 py-0.5 rounded-full font-mono">
+                          Consigliato per Pulsanti / Zigbee
+                        </span>
+                      </h4>
+                      <p className="text-xs text-slate-400 mt-0.5">
+                        Evita che Tuya Cloud marchi erroneamente il pulsante come "Offline" quando è in stato di riposo/sleep.
+                      </p>
+                    </div>
+                    <label className="relative inline-flex items-center cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={editAlwaysOnline}
+                        onChange={(e) => setEditAlwaysOnline(e.target.checked)}
+                        className="sr-only peer"
+                      />
+                      <div className="w-11 h-6 bg-white/10 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-emerald-500"></div>
+                    </label>
+                  </div>
                 </div>
 
                 {/* Custom Photo / Image Upload Section */}

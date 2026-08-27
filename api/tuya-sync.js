@@ -367,7 +367,9 @@ export default async function handler(req, res) {
         const isVacuumCleaning = Boolean(getStatusVal(d, ['status', 'mode', 'power_go']) === 'cleaning' || getStatusVal(d, ['status']) === 'smart');
         const curtainsOpen = Number(getStatusVal(d, ['percent_control', 'position', '1']) || 0);
 
-        const isOnline = d.online !== undefined ? Boolean(d.online) : true;
+        const isOnline = d.online !== undefined
+          ? (Boolean(d.online) || Boolean(d.is_online) || anySwitchOn || lightPower || plugPower)
+          : (d.is_online !== undefined ? Boolean(d.is_online) : true);
 
         return {
           id: `tuya-cloud-${d.id || index}`,

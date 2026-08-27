@@ -148,6 +148,10 @@ export interface SmartDevice {
   customImageUrl?: string;
   channel?: string | null; // Tuya switch channel (e.g. 'switch_1', 'switch_2', 'switch_3', 'switch_4')
   dpCode?: string | null;
+  cardSpan?: 1 | 2; // 1 = Standard 1-col card, 2 = Wide full-row 2-col card
+  forceOnline?: boolean; // Force keep device online in UI, ignoring sleepy battery/Zigbee status
+  alwaysOnline?: boolean; // User preference override to prevent false offline reporting
+  lastCommandAt?: number; // Timestamp of last successful command
   schedules?: DeviceSchedule[]; // Smart Life device timer / schedules list
   state: {
     plug?: DevicePlugState;
@@ -222,21 +226,42 @@ export interface ChatMessage {
   };
 }
 
-export function isCameraDevice(device: SmartDevice): boolean {
+export function isCameraDevice(device?: SmartDevice | null): boolean {
+  if (!device) return false;
   return Boolean(
     device.category === 'camera' ||
     device.customIcon === 'camera' ||
-    device.name.toLowerCase().includes('telecamera') ||
-    device.name.toLowerCase().includes('camera')
+    (device.name || '').toLowerCase().includes('telecamera') ||
+    (device.name || '').toLowerCase().includes('camera')
   );
 }
 
-export function isMultiButtonDevice(device: SmartDevice): boolean {
-  const name = device.name.toLowerCase();
+export function isMultiButtonDevice(device?: SmartDevice | null): boolean {
+  if (!device) return false;
+  if (device.cardSpan === 1) return false;
+  if (device.cardSpan === 2) return true;
+
+  const name = (device.name || '').toLowerCase();
   const icon = (device.customIcon || '').toLowerCase();
   const cat = device.category;
   const switchState = device.state?.switch;
 
+  // Gate / Cancellone / Impulse switches should NEVER be multi-button/wide by default
+  if (
+    cat === 'gate' ||
+    cat === 'pulsed_switch' ||
+    icon === 'gate' ||
+    icon === 'pulsed_switch' ||
+    name.includes('cancello') ||
+    name.includes('cancellone') ||
+    name.includes('cancelletto') ||
+    name.includes('varco') ||
+    name.includes('portoncino')
+  ) {
+    return false;
+  }
+
+  // Irrigation relays
   if (
     name.includes('irrigaz') ||
     name.includes('solenoide') ||
@@ -246,25 +271,40 @@ export function isMultiButtonDevice(device: SmartDevice): boolean {
     return true;
   }
 
-  if (cat === 'switch' || icon === 'switch' || icon === 'power') {
-    if (switchState?.gangs && switchState.gangs.length > 1) return true;
-    if (switchState?.channelStates && Object.keys(switchState.channelStates).length > 1) return true;
-  }
-
+  // Multi-gang relay modules explicitly labeled 4CH or with 4+ channels
   if (
     name.includes('4ch') ||
     name.includes('4-channel') ||
     name.includes('4 canali') ||
-    name.includes('2ch') ||
-    name.includes('3ch') ||
     name.includes('multicanale')
   ) {
+    return true;
+  }
+
+  if (cat === 'switch' && switchState?.gangs && switchState.gangs.length >= 4) {
     return true;
   }
 
   return false;
 }
 
-export function isWideDeviceCard(device: SmartDevice): boolean {
+export function isWideDeviceCard(device?: SmartDevice | null): boolean {
+  if (!device) return false;
+  // If user explicitly chose cardSpan (1 or 2), respect user setting
+  if (device.cardSpan === 1) return false;
+  if (device.cardSpan === 2) return true;
+
+  // Gate / Cancellone / standard switches are 1 column by default
+  const name = (device.name || '').toLowerCase();
+  if (
+    name.includes('cancello') ||
+    name.includes('cancellone') ||
+    name.includes('cancelletto') ||
+    device.category === 'gate' ||
+    device.category === 'pulsed_switch'
+  ) {
+    return false;
+  }
+
   return isCameraDevice(device) || isMultiButtonDevice(device);
 }

@@ -270,7 +270,7 @@ const CameraCard: React.FC<{
   device: SmartDevice;
   onClickDetail: (device: SmartDevice) => void;
 }> = ({ device, onClickDetail }) => {
-  const [isPlaying, setIsPlaying] = useState<boolean>(true);
+  const [isPlaying, setIsPlaying] = useState<boolean>(false);
   const [isMuted, setIsMuted] = useState<boolean>(true);
   const [showTuyaConfigModal, setShowTuyaConfigModal] = useState<boolean>(false);
   const [tuyaForm, setTuyaForm] = useState<TuyaCameraConfig>(() =>
@@ -934,20 +934,31 @@ export const DeviceCard: React.FC<DeviceCardProps> = ({
     name.toLowerCase().includes('varco') ||
     name.toLowerCase().includes('portoncino');
 
-  const isOnline = device.isOnline !== false;
-
-  // Determine main power status correctly per device category (bypassing rigid offline flag)
+  // Determine main power status correctly per device category and specific gang/channel
   const isPowerOn = (() => {
     if (isGateOrImpulse) {
       return Boolean(state.switch?.power || state.switch?.gangs?.[0] || (state as any)?.power);
     }
+
+    // If card is configured for a specific gang / channel (e.g. switch_3, switch_2, switch_1)
+    const configuredChannel = (device.dpCode && device.dpCode.trim()) || (device.channel && device.channel !== 'default' ? device.channel : '');
+    if (configuredChannel && (configuredChannel.startsWith('switch_') || configuredChannel.startsWith('button_'))) {
+      const gangIdx = configuredChannel === 'switch_3' ? 2 : configuredChannel === 'switch_2' ? 1 : configuredChannel === 'switch_4' ? 3 : 0;
+      if (state.switch?.channelStates?.[configuredChannel] !== undefined) {
+        return Boolean(state.switch.channelStates[configuredChannel]);
+      }
+      if (state.switch?.gangs && state.switch.gangs[gangIdx] !== undefined) {
+        return Boolean(state.switch.gangs[gangIdx]);
+      }
+    }
+
     switch (category) {
       case 'light':
-        return Boolean(state.light?.power);
+        return Boolean(state.light?.power !== undefined ? state.light.power : (state.switch?.power ?? (state as any)?.power));
       case 'plug':
-        return Boolean(state.plug?.power);
+        return Boolean(state.plug?.power !== undefined ? state.plug.power : (state.switch?.power ?? (state as any)?.power));
       case 'switch':
-        return Boolean(state.switch?.power || state.switch?.gangs?.[0] || (state as any)?.power);
+        return Boolean(state.switch?.power !== undefined ? state.switch.power : (state.switch?.gangs?.[0] ?? state.light?.power ?? (state as any)?.power));
       case 'gate':
       case 'pulsed_switch':
         return Boolean(state.switch?.power || (state as any)?.power);
@@ -962,9 +973,14 @@ export const DeviceCard: React.FC<DeviceCardProps> = ({
       case 'vacuum':
         return state.vacuum?.status === 'cleaning';
       default:
-        return Boolean((state as any)?.power);
+        return Boolean((state as any)?.power || state.switch?.power || state.light?.power);
     }
   })();
+
+  const isOnline =
+    Boolean(device.alwaysOnline || device.forceOnline) ||
+    Boolean(device.lastCommandAt && Date.now() - device.lastCommandAt < 30 * 60 * 1000) ||
+    device.isOnline !== false;
 
   // Apple Home Subtitle status text: Simple ON, OFF or Thermostat Temp
   const getStatusText = () => {

@@ -347,10 +347,11 @@ export async function sendTuyaCommand(
     realCode === 'switch_go' ||
     options?.dpCode === 'switch_go';
 
-  // Per il Cancelletto usa primariamente 'switch' se non diversamente specificato
-  if (isCancelletto && realCode === 'switch_1' && !options?.dpCode) {
+  if (options?.dpCode && options.dpCode.trim()) {
+    realCode = options.dpCode.trim();
+  } else if (isCancelletto && realCode === 'switch_1') {
     realCode = 'switch';
-  } else if (isPlug && (realCode === 'switch_1' || realCode === 'switch') && !options?.dpCode) {
+  } else if (isPlug && (realCode === 'switch_1' || realCode === 'switch')) {
     realCode = 'switch_go';
   }
 
@@ -500,8 +501,30 @@ export async function pollTuyaDevicesStatus(
         return dev;
       }
 
-      // Check isOnline change
-      const nextIsOnline = remote.isOnline !== undefined ? Boolean(remote.isOnline) : dev.isOnline;
+      // Check isOnline change with intelligent fallback for sleeping Zigbee / subdevice switches & buttons
+      const isRecentlyUsed = dev.lastCommandAt && Date.now() - dev.lastCommandAt < 30 * 60 * 1000;
+      const isCurrentlyPowered = Boolean(
+        dev.state?.light?.power ||
+        dev.state?.plug?.power ||
+        dev.state?.switch?.power ||
+        dev.state?.thermostat?.power ||
+        (dev.state as any)?.power
+      );
+
+      let nextIsOnline = dev.isOnline;
+      if (dev.alwaysOnline || dev.forceOnline) {
+        nextIsOnline = true;
+      } else if (remote.isOnline !== undefined) {
+        // If Tuya reports false, but device was commanded recently or is locally ON, prevent false offline blink
+        if (Boolean(remote.isOnline)) {
+          nextIsOnline = true;
+        } else if (isRecentlyUsed || isCurrentlyPowered) {
+          nextIsOnline = true;
+        } else {
+          nextIsOnline = false;
+        }
+      }
+
       const isOnlineChanged = nextIsOnline !== dev.isOnline;
 
       // Check state changes

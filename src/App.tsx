@@ -48,7 +48,9 @@ import {
   Move,
   RotateCcw,
   ExternalLink,
-  X
+  X,
+  Square,
+  RectangleHorizontal
 } from 'lucide-react';
 
 // ============================================================================
@@ -412,7 +414,13 @@ export default function App() {
   // Device Action Handlers - Persisted to Firestore Cloud DB & Tuya Cloud OpenAPI
   const handleTogglePower = async (device: SmartDevice) => {
     const d = device;
-    const newDev = { ...d, state: { ...d.state } };
+    const nowTime = Date.now();
+    const newDev: SmartDevice = {
+      ...d,
+      isOnline: true,
+      lastCommandAt: nowTime,
+      state: { ...d.state },
+    };
 
     const isCancelletto =
       (device.name || '').toLowerCase().includes('cancelletto') ||
@@ -442,6 +450,8 @@ export default function App() {
       // 1. Invia subito il comando di accensione ("value": true / "switch": true)
       const step1Dev: SmartDevice = {
         ...d,
+        isOnline: true,
+        lastCommandAt: nowTime,
         state: {
           ...d.state,
           switch: {
@@ -502,6 +512,8 @@ export default function App() {
 
         const step2Dev: SmartDevice = {
           ...d,
+          isOnline: true,
+          lastCommandAt: Date.now(),
           state: {
             ...d.state,
             switch: {
@@ -531,10 +543,69 @@ export default function App() {
     let commandCode = 'switch_1';
     let commandValue: boolean = true;
 
-    if (d.category === 'plug' || (d as any).tuyaCategory === 'cz' || (d as any).tuyaCategory === 'socket' || (d.name || '').toLowerCase().includes('presa')) {
-      const currentPower = d.state.plug?.power ?? false;
+    // Check if device is configured for a specific multi-gang channel (e.g. switch_1, switch_2, switch_3, switch_4)
+    const configuredChannel = (d.dpCode && d.dpCode.trim()) || (d.channel && d.channel !== 'default' ? d.channel : '');
+    const isMultiGangChannel = configuredChannel.startsWith('switch_') || configuredChannel.startsWith('button_');
+
+    if (isMultiGangChannel) {
+      const dpMap: Record<string, number> = { switch_1: 0, switch_2: 1, switch_3: 2, switch_4: 3, button_1: 0, button_2: 1, button_3: 2, button_4: 3 };
+      const gangIdx = dpMap[configuredChannel] !== undefined ? dpMap[configuredChannel] : (configuredChannel === 'switch_3' ? 2 : configuredChannel === 'switch_2' ? 1 : 0);
+      
+      const currentChannelVal = Boolean(
+        d.state.switch?.channelStates?.[configuredChannel] ??
+        d.state.switch?.gangs?.[gangIdx] ??
+        d.state.light?.power ??
+        d.state.switch?.power ??
+        d.state.plug?.power ??
+        (d.state as any)?.power ??
+        false
+      );
+      const nextPower = !currentChannelVal;
+      commandCode = configuredChannel;
+      commandValue = nextPower;
+
+      const currentGangs = [
+        Boolean(d.state.switch?.channelStates?.switch_1 ?? d.state.switch?.gangs?.[0]),
+        Boolean(d.state.switch?.channelStates?.switch_2 ?? d.state.switch?.gangs?.[1]),
+        Boolean(d.state.switch?.channelStates?.switch_3 ?? d.state.switch?.gangs?.[2]),
+        Boolean(d.state.switch?.channelStates?.switch_4 ?? d.state.switch?.gangs?.[3]),
+      ];
+      currentGangs[gangIdx] = nextPower;
+
+      newDev.state.switch = {
+        ...(d.state.switch || {}),
+        gangs: currentGangs,
+        channelStates: {
+          ...(d.state.switch?.channelStates || {}),
+          switch_1: currentGangs[0],
+          switch_2: currentGangs[1],
+          switch_3: currentGangs[2],
+          switch_4: currentGangs[3],
+          [configuredChannel]: nextPower,
+        },
+        power: nextPower || currentGangs.some(Boolean),
+      };
+      newDev.state.light = {
+        brightness: 100,
+        color: '#ffffff',
+        colorTemp: 4000,
+        mode: 'white',
+        ...(d.state.light || {}),
+        power: nextPower,
+      };
+      newDev.state.plug = {
+        watts: nextPower ? 120 : 0,
+        voltage: 220,
+        current: nextPower ? 0.5 : 0,
+        totalKwh: 12.5,
+        ...(d.state.plug || {}),
+        power: nextPower,
+      };
+      (newDev.state as any).power = nextPower;
+    } else if (d.category === 'plug' || (d as any).tuyaCategory === 'cz' || (d as any).tuyaCategory === 'socket' || (d.name || '').toLowerCase().includes('presa')) {
+      const currentPower = Boolean(d.state.plug?.power ?? d.state.switch?.power ?? (d.state as any)?.power ?? false);
       const nextPower = !currentPower;
-      commandCode = 'switch_go';
+      commandCode = (d.dpCode && d.dpCode.trim()) || (d.channel && d.channel !== 'default' ? d.channel : '') || 'switch_go';
       commandValue = nextPower;
       newDev.state.plug = {
         totalKwh: 12.5,
@@ -544,10 +615,16 @@ export default function App() {
         power: nextPower,
         watts: nextPower ? 120.0 : 0,
       };
+      newDev.state.switch = {
+        ...(d.state.switch || { gangs: [nextPower] }),
+        power: nextPower,
+        gangs: [nextPower],
+      };
+      (newDev.state as any).power = nextPower;
     } else if (d.category === 'light') {
-      const currentPower = d.state.light?.power ?? false;
+      const currentPower = Boolean(d.state.light?.power ?? d.state.switch?.power ?? (d.state as any)?.power ?? false);
       const nextPower = !currentPower;
-      commandCode = 'switch_led';
+      commandCode = (d.dpCode && d.dpCode.trim()) || (d.channel && d.channel !== 'default' ? d.channel : '') || 'switch_1';
       commandValue = nextPower;
       newDev.state.light = {
         brightness: 100,
@@ -557,6 +634,12 @@ export default function App() {
         ...(d.state.light || {}),
         power: nextPower,
       };
+      newDev.state.switch = {
+        ...(d.state.switch || { gangs: [nextPower] }),
+        power: nextPower,
+        gangs: [nextPower],
+      };
+      (newDev.state as any).power = nextPower;
     } else if (d.category === 'thermostat') {
       const currentPower = d.state.thermostat?.power ?? false;
       const nextPower = !currentPower;
@@ -596,15 +679,24 @@ export default function App() {
         status: nextStatus,
       };
     } else if (d.category === 'switch') {
-      const currentPower = d.state.switch?.power ?? false;
+      const currentPower = Boolean(d.state.switch?.power ?? d.state.light?.power ?? (d.state as any)?.power ?? false);
       const nextPower = !currentPower;
-      commandCode = 'switch_1';
+      commandCode = (d.dpCode && d.dpCode.trim()) || (d.channel && d.channel !== 'default' ? d.channel : '') || 'switch_1';
       commandValue = nextPower;
       newDev.state.switch = {
-        ...(d.state.switch || { gangs: [false] }),
+        ...(d.state.switch || { gangs: [nextPower] }),
         power: nextPower,
-        gangs: (d.state.switch?.gangs || [false]).map(() => nextPower),
+        gangs: (d.state.switch?.gangs || [nextPower]).map(() => nextPower),
       };
+      newDev.state.light = {
+        brightness: 100,
+        color: '#ffffff',
+        colorTemp: 4000,
+        mode: 'white',
+        ...(d.state.light || {}),
+        power: nextPower,
+      };
+      (newDev.state as any).power = nextPower;
     } else {
       // General fallback toggle
       const genPower = !(d.state as any)?.power;
@@ -614,7 +706,6 @@ export default function App() {
     }
 
     // Override commandCode if a specific Tuya channel/switch ID is configured (e.g. switch_1, switch_2, switch_3, switch_4)
-    const configuredChannel = d.channel || d.dpCode;
     if (configuredChannel && configuredChannel !== '1' && configuredChannel !== 'default') {
       commandCode = configuredChannel;
     }
@@ -685,6 +776,8 @@ export default function App() {
 
     const newDev: SmartDevice = {
       ...device,
+      isOnline: true,
+      lastCommandAt: Date.now(),
       state: {
         ...device.state,
         switch: {
@@ -769,6 +862,21 @@ export default function App() {
     setSelectedDevice(updatedDevice);
     showToast(`Dispositivo "${updatedDevice.name}" modificato.`);
 
+    await saveDeviceToDb(updatedDevice);
+  };
+
+  const handleToggleCardSpan = async (device: SmartDevice) => {
+    const currentIsWide = isWideDeviceCard(device);
+    const nextSpan: 1 | 2 = currentIsWide ? 1 : 2;
+    const updatedDevice: SmartDevice = {
+      ...device,
+      cardSpan: nextSpan,
+    };
+    setDevices((prev) => prev.map((d) => (d.id === device.id ? updatedDevice : d)));
+    if (selectedDevice && selectedDevice.id === device.id) {
+      setSelectedDevice(updatedDevice);
+    }
+    showToast(`Dimensione "${device.name}": ${nextSpan === 1 ? '1 Colonna (Standard)' : '2 Colonne (Intera riga)'}`);
     await saveDeviceToDb(updatedDevice);
   };
 
@@ -1750,6 +1858,31 @@ export default function App() {
                           >
                             <GripVertical className="w-4 h-4" />
                           </div>
+
+                          {/* Quick Resize Toggle (1 Colonna Standard / 2 Colonne Larga) */}
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleToggleCardSpan(dev);
+                            }}
+                            className={`absolute top-2 right-10 z-30 transition-opacity bg-black/75 backdrop-blur-md px-2 py-1 rounded-lg border border-white/20 text-slate-300 hover:text-amber-300 hover:bg-black/90 shadow-md flex items-center gap-1 text-[10px] font-bold cursor-pointer ${
+                              isEditMode ? 'opacity-100' : 'opacity-0 group-hover/drag:opacity-100'
+                            }`}
+                            title={isWide ? 'Riduci a 1 Colonna (Compatto)' : 'Espandi a 2 Colonne (Intera riga)'}
+                          >
+                            {isWide ? (
+                              <>
+                                <Square className="w-3.5 h-3.5 text-amber-400" />
+                                <span className="hidden sm:inline">1 Col</span>
+                              </>
+                            ) : (
+                              <>
+                                <RectangleHorizontal className="w-3.5 h-3.5 text-slate-300" />
+                                <span className="hidden sm:inline">2 Col</span>
+                              </>
+                            )}
+                          </button>
 
                           <DeviceCard
                             device={dev}
