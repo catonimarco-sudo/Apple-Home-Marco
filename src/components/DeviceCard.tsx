@@ -697,6 +697,26 @@ const CameraCard: React.FC<{
                   type="button"
                   onClick={(e) => {
                     e.stopPropagation();
+                    setIsPlaying(!isPlaying);
+                  }}
+                  onTouchEnd={(e) => {
+                    if (e.cancelable) e.preventDefault();
+                    e.stopPropagation();
+                    setIsPlaying(!isPlaying);
+                  }}
+                  className="p-1 rounded-full bg-black/50 hover:bg-black/70 text-white border border-white/20 backdrop-blur-md transition cursor-pointer flex items-center justify-center shadow-lg hover:border-amber-400"
+                  title={isPlaying ? 'Pausa Stream' : 'Riproduci Stream'}
+                >
+                  {isPlaying ? (
+                    <Pause className="w-3.5 h-3.5 text-amber-300 fill-amber-300" />
+                  ) : (
+                    <Play className="w-3.5 h-3.5 text-white fill-white ml-0.5" />
+                  )}
+                </button>
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
                     setIsMuted(!isMuted);
                   }}
                   onTouchEnd={(e) => {
@@ -749,31 +769,27 @@ const CameraCard: React.FC<{
               </div>
             </div>
 
-            {/* Center Play / Pause Button Overlay */}
-            <div className="absolute inset-0 flex items-center justify-center z-10 pointer-events-none">
-              <button
-                type="button"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  setIsPlaying(!isPlaying);
-                }}
-                onTouchEnd={(e) => {
-                  if (e.cancelable) e.preventDefault();
-                  e.stopPropagation();
-                  setIsPlaying(!isPlaying);
-                }}
-                className={`pointer-events-auto w-13 h-13 sm:w-16 sm:h-16 rounded-full border-2 backdrop-blur-[2px] flex items-center justify-center text-white hover:scale-105 active:scale-95 transition cursor-pointer shadow-2xl ${
-                  isPlaying ? 'bg-amber-500/30 border-amber-400' : 'bg-black/35 border-white/90 hover:bg-black/50'
-                }`}
-                title={isPlaying ? 'Pausa / Interrompi Stream Live' : 'Avvia Streaming Live'}
-              >
-                {isPlaying ? (
-                  <Pause className="w-6 h-6 sm:w-7 sm:h-7 fill-amber-300 text-amber-300" />
-                ) : (
+            {/* Center Play Button Overlay (ONLY shown when paused, never while LIVE) */}
+            {!isPlaying && (
+              <div className="absolute inset-0 flex items-center justify-center z-10 pointer-events-none">
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setIsPlaying(true);
+                  }}
+                  onTouchEnd={(e) => {
+                    if (e.cancelable) e.preventDefault();
+                    e.stopPropagation();
+                    setIsPlaying(true);
+                  }}
+                  className="pointer-events-auto w-14 h-14 sm:w-16 sm:h-16 rounded-full border-2 border-white/90 bg-black/40 hover:bg-black/60 backdrop-blur-sm flex items-center justify-center text-white hover:scale-105 active:scale-95 transition cursor-pointer shadow-2xl"
+                  title="Avvia Streaming Live"
+                >
                   <Play className="w-7 h-7 sm:w-8 sm:h-8 fill-white text-white ml-1 opacity-95" />
-                )}
-              </button>
-            </div>
+                </button>
+              </div>
+            )}
 
             {/* Live Indicator Pill */}
             {isPlaying && (
